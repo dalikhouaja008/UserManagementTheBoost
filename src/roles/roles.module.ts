@@ -4,6 +4,7 @@ import { RolesResolver } from './roles.resolver';
 import { CoreModule } from 'src/core/core.module';
 import { GuardsModule } from 'src/guards/guards.module';
 import { AuthenticationModule } from 'src/authentication/authentication.module';
+import { MicroserviceRolesService } from './microservice-roles.service';
 
 
 @Module({
@@ -14,8 +15,12 @@ import { AuthenticationModule } from 'src/authentication/authentication.module';
   ],
   providers: [
     RolesService,
-    RolesResolver
+    RolesResolver,
+    MicroserviceRolesService
   ],
-  exports: [RolesService]
+  exports: [
+    RolesService,
+    MicroserviceRolesService
+  ]
 })
 export class RolesModule {}

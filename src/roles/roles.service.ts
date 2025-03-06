@@ -12,7 +12,7 @@ import { Permission, Role } from './schemas/role.schema';
 export class RolesService {
   constructor(
     @InjectModel(Role.name) private roleModel: Model<Role>
-  ) {}
+  ) { }
 
   async onModuleInit() {
     await this.initializeDefaultRoles();
@@ -20,46 +20,85 @@ export class RolesService {
 
   private async initializeDefaultRoles() {
     const defaultRoles = {
+      // Administrateur
       [UserRole.ADMIN]: {
         permissions: Object.values(Resource).map(resource => ({
           resource,
           actions: Object.values(Action)
         }))
       },
+      // Utilisateur Standard
       [UserRole.USER]: {
         permissions: [
           {
             resource: Resource.USERS,
-            actions: [Action.read]  // L'utilisateur peut voir son propre profil
+            actions: [Action.READ]  // Voir son propre profil
+          },
+          {
+            resource: Resource.LAND,
+            actions: [
+              Action.UPLOAD_LAND,    // Poster un terrain
+              Action.EDIT_LAND,      // Modifier ses terrains
+              Action.DELETE_LAND,    // Supprimer ses terrains
+              Action.VIEW_OWN_LANDS  // Voir ses terrains
+            ]
           }
         ]
       },
+
+      // Notaire
       [UserRole.NOTAIRE]: {
         permissions: [
           {
+            resource: Resource.LAND,
+            actions: [
+              Action.READ,
+              Action.VALIDATE,
+              Action.SIGN
+            ]
+          },
+          {
             resource: Resource.AUTH,
-            actions: [Action.read]  // Uniquement pour l'authentification
+            actions: [Action.READ]
           }
         ]
       },
+      // Géomètre
       [UserRole.GEOMETRE]: {
         permissions: [
           {
+            resource: Resource.LAND,
+            actions: [
+              Action.READ,
+              Action.MEASURE,
+              Action.VALIDATE
+            ]
+          },
+          {
             resource: Resource.AUTH,
-            actions: [Action.read]  // Uniquement pour l'authentification
+            actions: [Action.READ]
           }
         ]
       },
+      // Expert Juridique
       [UserRole.EXPERT_JURIDIQUE]: {
         permissions: [
           {
+            resource: Resource.LAND,
+            actions: [
+              Action.READ,
+              Action.REVIEW,
+              Action.VALIDATE
+            ]
+          },
+          {
             resource: Resource.AUTH,
-            actions: [Action.read]  // Uniquement pour l'authentification
+            actions: [Action.READ]
           }
         ]
       }
     };
-  
+
     for (const [roleName, roleData] of Object.entries(defaultRoles)) {
       await this.roleModel.findOneAndUpdate(
         { name: roleName },

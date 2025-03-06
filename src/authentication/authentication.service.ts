@@ -428,7 +428,7 @@ export class AuthenticationService {
     if (!permissions || permissions.length === 0) {
       return [{
         resource: Resource.AUTH,
-        actions: [Action.read]
+        actions: [Action.READ]
       }];
     }
   

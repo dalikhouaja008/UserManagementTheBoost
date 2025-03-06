@@ -3,6 +3,7 @@ import { AuthenticationGuard } from './authentication.guard';
 import { CoreModule } from '../core/core.module';
 import { AuthenticationModule } from '../authentication/authentication.module';
 import { AuthorizationGuard } from './authorization.guards';
+import { MicroserviceAuthGuard } from './microservice-auth.guard';
 
 @Module({
   imports: [
@@ -11,11 +12,13 @@ import { AuthorizationGuard } from './authorization.guards';
   ],
   providers: [
     AuthenticationGuard,
-    AuthorizationGuard
+    AuthorizationGuard,
+    MicroserviceAuthGuard
   ],
   exports: [
     AuthenticationGuard,
-    AuthorizationGuard
+    AuthorizationGuard,
+    MicroserviceAuthGuard
   ]
 })
 export class GuardsModule {}

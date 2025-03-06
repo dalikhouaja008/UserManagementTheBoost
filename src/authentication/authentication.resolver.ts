@@ -36,7 +36,7 @@ export class AuthenticationResolver {
     @UseGuards(AuthenticationGuard, AuthorizationGuard)
     @Permissions({
       resource: Resource.USERS,
-      actions: [Action.create]
+      actions: [Action.CREATE]
     })
     async createSpecialUser(@Args('input') userInput: UserInput) {
       // Vérifie que le rôle est valide pour les comptes spéciaux

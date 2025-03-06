@@ -9,6 +9,7 @@ import { RolesModule } from './roles/roles.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
+import { MicroserviceCommunicationService } from './core/services/micro-service.service';
 
 
 @Module({
@@ -35,6 +36,7 @@ import { GuardsModule } from './guards/guards.module';
     ScheduleModule.forRoot(),
     CoreModule,
     GuardsModule,
+
   ],
 })
 export class AppModule {}

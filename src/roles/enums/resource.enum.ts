@@ -2,11 +2,21 @@ import { registerEnumType } from "@nestjs/graphql";
 
 
 export enum Resource {
+  // Resources User Management
   USERS = 'users',
-  SETTINGS = 'settings',
   ROLES = 'roles',
-  AUTHENTICATION = 'authentication',
-  AUTH = "auth"
+  AUTH = 'auth',
+  SETTINGS = 'settings',
+  
+  // Resources Land Service
+  LAND = 'land',
+  LAND_VALIDATION = 'land_validation',
+  LAND_DOCUMENTS = 'land_documents',
+  LAND_HISTORY = 'land_history',
+  
+  // Resources Communes
+  NOTIFICATIONS = 'notifications',
+  DOCUMENTS = 'documents',
 }
 
 registerEnumType(Resource, {

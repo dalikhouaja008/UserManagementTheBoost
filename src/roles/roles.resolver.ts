@@ -18,7 +18,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.read]
+    actions: [Action.READ]
   })
   async roles() {
     return this.rolesService.findAll();
@@ -28,7 +28,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.read]
+    actions: [Action.READ]
   })
   async role(@Args('name') name: string) {
     return this.rolesService.findByName(name);
@@ -38,7 +38,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.create]
+    actions: [Action.CREATE]
   })
   async createRole(
     @Args('createRoleInput') createRoleInput: CreateRoleInput
@@ -53,7 +53,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.update]
+    actions: [Action.UPDATE]
   })
   async updateRole(
     @Args('updateRoleInput') updateRoleInput: UpdateRoleInput
@@ -68,7 +68,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.delete]
+    actions: [Action.DELETE]
   })
   async deleteRole(@Args('name') name: string) {
     await this.rolesService.deleteRole(name);
@@ -79,7 +79,7 @@ export class RolesResolver {
   @UseGuards(AuthenticationGuard, AuthorizationGuard)
   @Permissions({
     resource: Resource.ROLES,
-    actions: [Action.read]
+    actions: [Action.READ]
   })
   async getRolePermissions(@Args('name') name: string) {
     return this.rolesService.getRolePermissions(name);

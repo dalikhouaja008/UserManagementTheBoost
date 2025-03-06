@@ -10,18 +10,39 @@ type Permission {
 """Resources disponibles dans le service user-management"""
 enum Resource {
   USERS
-  SETTINGS
   ROLES
-  AUTHENTICATION
   AUTH
+  SETTINGS
+  LAND
+  LAND_VALIDATION
+  LAND_DOCUMENTS
+  LAND_HISTORY
+  NOTIFICATIONS
+  DOCUMENTS
 }
 
-"""Type de permission"""
+"""Actions disponibles dans l'application"""
 enum Action {
-  read
-  create
-  update
-  delete
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  VALIDATE
+  REJECT
+  SIGN
+  MEASURE
+  REVIEW
+  UPLOAD_LAND
+  EDIT_LAND
+  DELETE_LAND
+  VIEW_OWN_LANDS
+  UPLOAD
+  DOWNLOAD
+  SUBMIT
+  APPROVE
+  REQUEST_CHANGES
+  SEND
+  RECEIVE
 }
 
 type Role {
