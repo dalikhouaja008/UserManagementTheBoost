@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
@@ -19,6 +21,9 @@ import { Model, Types } from 'mongoose';
 import { LoginInput } from './dto/login.input';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
 import { LoginResponse } from './responses/login.response';
+import { UserRole } from 'src/roles/enums/roles.enum';
+import { Resource } from 'src/roles/enums/resource.enum';
+import { Action } from 'src/roles/enums/action.enum';
 
 @Injectable()
 export class AuthenticationService {
@@ -30,6 +35,7 @@ export class AuthenticationService {
     private ResetTokenModel: Model<ResetToken>,
     private jwtService: JwtService,
     private mailService: MailService,
+    @Inject(forwardRef(() => RolesService))
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
   ) { }
@@ -53,7 +59,7 @@ export class AuthenticationService {
       password: hashedPassword,
       publicKey: publicKey || null, // Optionnel
       twoFactorSecret: twoFactorSecret || null, // Optionnel
-      role: role || 'user', // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
+      role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
       isVerified: isVerified || false, // Optionnel, valeur par défaut
     });
 
@@ -79,6 +85,7 @@ export class AuthenticationService {
       const tempToken = this.jwtService.sign(
         { 
           userId: user._id,
+          role: user.role,  
           isTwoFactorAuthenticated: false,
           isTemp: true 
         },
@@ -163,12 +170,12 @@ export class AuthenticationService {
     
     const payload = {
       userId: user._id,
-      email: user.email,
+      role: user.role,
       isTwoFactorAuthenticated,
     };
 
     const accessToken = this.jwtService.sign(payload, { 
-      expiresIn: '10h',
+      expiresIn: '11h',
       secret: process.env.JWT_SECRET 
     });
 
@@ -194,16 +201,6 @@ export class AuthenticationService {
       },
     );
   }
-
-  async getUserPermissions(userId: string) {
-    const user = await this.UserModel.findById(userId);
-
-    if (!user) throw new BadRequestException();
-
-    const role = await this.rolesService.getRoleById(user.role);
-    return role.permissions;
-  }
-
 
   async requestReset(email: string) {
     // 1. Trouver l'utilisateur
@@ -386,16 +383,56 @@ export class AuthenticationService {
     return this.generateUserTokens(userId, true);
   }
 
+
+
+//Partie rôle
+  async updateUserRole(userId: string, newRole: UserRole, adminId: string) {
+    // Vérifier si l'admin a les droits nécessaires
+    const admin = await this.UserModel.findById(adminId);
+    if (!admin || admin.role !== UserRole.ADMIN) {
+      throw new UnauthorizedException('Only administrators can change roles');
+    }
+  
+    // Ne pas permettre de changer le rôle d'un admin
+    const userToUpdate = await this.UserModel.findById(userId);
+    if (!userToUpdate) {
+      throw new NotFoundException('User not found');
+    }
+    if (userToUpdate.role === UserRole.ADMIN) {
+      throw new BadRequestException('Cannot change role of an administrator');
+    }
+  
+    // Mettre à jour le rôle
+    const updatedUser = await this.UserModel.findByIdAndUpdate(
+      userId,
+      { role: newRole },
+      { new: true }
+    );
+  
+    return updatedUser;
+  }
+  async isAdmin(userId: string): Promise<boolean> {
+    const user = await this.UserModel.findById(userId);
+    return user?.role === UserRole.ADMIN;
+  }
+  async getUserPermissions(userId: string) {
+    const user = await this.UserModel.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+  
+    // Récupérer les permissions basées sur le rôle de l'utilisateur
+    const permissions = await this.rolesService.getRolePermissions(user.role);
+  
+    // Si aucune permission n'est trouvée, retourner au moins la permission d'authentification
+    if (!permissions || permissions.length === 0) {
+      return [{
+        resource: Resource.AUTH,
+        actions: [Action.read]
+      }];
+    }
+  
+    return permissions;
+  }
+
 }
-
-
-
-
-
-
-
-
-
-
-
-

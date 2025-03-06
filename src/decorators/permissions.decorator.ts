@@ -1,8 +1,13 @@
 import { SetMetadata } from '@nestjs/common';
-import { PermissionInput } from 'src/roles/dtos/role.dto';
+import { Resource } from '../roles/enums/resource.enum';
+import { Action } from '../roles/enums/action.enum';
 
-export const PERMISSIONS_KEY = "permissions";
+export interface RequiredPermission {
+  resource: Resource;
+  actions: Action[];
+}
 
-export const Permissions = (permissions: PermissionInput[]) =>
+export const PERMISSIONS_KEY = 'permissions';
+
+export const Permissions = (...permissions: RequiredPermission[]) => 
   SetMetadata(PERMISSIONS_KEY, permissions);
-

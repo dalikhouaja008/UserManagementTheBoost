@@ -12,6 +12,10 @@ import { User } from './schema/user.schema';
 import { LoginResponse } from './responses/login.response';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
 import { JwtService } from '@nestjs/jwt';
+import { AuthorizationGuard } from 'src/guards/authorization.guards';
+import { Resource } from 'src/roles/enums/resource.enum';
+import { Action } from 'src/roles/enums/action.enum';
+import { Permissions } from '../decorators/permissions.decorator';
 
 @Resolver(() => User)
 export class AuthenticationResolver {
@@ -21,11 +25,26 @@ export class AuthenticationResolver {
     private readonly jwtService: JwtService,
   ) { }
 
-  // Mutation pour l'inscription (signup)
+
   @Mutation(() => User)
   async signUp(@Args('signupData') signupData: UserInput) {
     return this.authService.signup(signupData);
   }
+
+    // Création de compte spécial (NOTAIRE, GEOMETRE, EXPERT_JURIDIQUE) - Réservé à l'admin
+    @Mutation(() => User)
+    @UseGuards(AuthenticationGuard, AuthorizationGuard)
+    @Permissions({
+      resource: Resource.USERS,
+      actions: [Action.create]
+    })
+    async createSpecialUser(@Args('input') userInput: UserInput) {
+      // Vérifie que le rôle est valide pour les comptes spéciaux
+      if (!['NOTAIRE', 'GEOMETRE', 'EXPERT_JURIDIQUE'].includes(userInput.role)) {
+        throw new Error('Invalid role for special user creation');
+      }
+      return this.authService.signup(userInput);
+    }
 
   @Mutation(() => LoginResponse)
   async login(@Args('credentials') credentials: LoginInput) {
@@ -36,6 +55,7 @@ export class AuthenticationResolver {
   }
   // Mutation pour rafraîchir les tokens
   @Mutation(() => String)
+  @UseGuards(AuthenticationGuard)
   async refreshTokens(@Args('refreshTokenData') refreshTokenData: RefreshTokenInput) {
     return this.authService.refreshTokens(refreshTokenData.refreshToken);
   }
@@ -43,6 +63,7 @@ export class AuthenticationResolver {
   // Mutation pour changer le mot de passe
   @UseGuards(AuthenticationGuard) // Protéger cette mutation avec un guard d'authentification
   @Mutation(() => String)
+  @UseGuards(AuthenticationGuard)
   async changePassword(@Args('changePasswordData') changePasswordData: ChangePasswordInput) {
     return this.authService.changePassword(
       changePasswordData.userId,

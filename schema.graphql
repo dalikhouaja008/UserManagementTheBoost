@@ -2,16 +2,18 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
-type PermissionType {
+type Permission {
   resource: Resource!
   actions: [Action!]!
 }
 
-"""Type de ressource disponible"""
+"""Resources disponibles dans le service user-management"""
 enum Resource {
-  settings
-  products
-  users
+  USERS
+  SETTINGS
+  ROLES
+  AUTHENTICATION
+  AUTH
 }
 
 """Type de permission"""
@@ -22,9 +24,9 @@ enum Action {
   delete
 }
 
-type RoleType {
+type Role {
   name: String!
-  permissions: [PermissionType!]!
+  permissions: [Permission!]!
 }
 
 type User {
@@ -85,10 +87,14 @@ type LoginResponse {
 
 type Query {
   validateUser(userId: String!): User!
+  roles: [Role!]!
+  role(name: String!): Role!
+  getRolePermissions(name: String!): [Permission!]!
 }
 
 type Mutation {
   signUp(signupData: UserInput!): User!
+  createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
   refreshTokens(refreshTokenData: RefreshTokenInput!): String!
   changePassword(changePasswordData: ChangePasswordInput!): String!
@@ -99,7 +105,9 @@ type Mutation {
   enableTwoFactorAuth: String!
   verifyTwoFactorAuth(token: String!): Boolean!
   verifyTwoFactorLogin(token: String!): LoginResponse!
-  create(input: CreateRoleDtoInput!): RoleType!
+  createRole(createRoleInput: CreateRoleInput!): Role!
+  updateRole(updateRoleInput: UpdateRoleInput!): Role!
+  deleteRole(name: String!): Boolean!
 }
 
 input UserInput {
@@ -150,7 +158,7 @@ input ResetPasswordInput {
   newPassword: String!
 }
 
-input CreateRoleDtoInput {
+input CreateRoleInput {
   name: String!
   permissions: [PermissionInput!]!
 }
@@ -158,4 +166,9 @@ input CreateRoleDtoInput {
 input PermissionInput {
   resource: Resource!
   actions: [Action!]!
+}
+
+input UpdateRoleInput {
+  name: String!
+  permissions: [PermissionInput!]!
 }

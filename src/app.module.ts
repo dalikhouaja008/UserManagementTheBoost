@@ -7,6 +7,8 @@ import config from './config/config';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RolesModule } from './roles/roles.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { CoreModule } from './core/core.module';
+import { GuardsModule } from './guards/guards.module';
 
 
 @Module({
@@ -31,6 +33,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     AuthenticationModule,
     RolesModule,
     ScheduleModule.forRoot(),
+    CoreModule,
+    GuardsModule,
   ],
 })
 export class AppModule {}
