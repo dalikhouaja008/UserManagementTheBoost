@@ -3,6 +3,8 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Transport } from '@nestjs/microservices';
 import * as cookieParser from 'cookie-parser';
+import { MicroserviceErrorInterceptor } from './core/interceptors/microservice-error.interceptor';
+import { MicroserviceExceptionFilter } from './core/filters/microservice-exveption.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -23,6 +25,8 @@ async function bootstrap() {
     whitelist: true,
     forbidNonWhitelisted: false,
   }));
+  app.useGlobalFilters(new MicroserviceExceptionFilter());
+  app.useGlobalInterceptors(new MicroserviceErrorInterceptor());
 
   await app.startAllMicroservices();
   await app.listen(process.env.HTTP_PORT || 3000);

@@ -9,7 +9,7 @@ import { RolesModule } from './roles/roles.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
-import { MicroserviceCommunicationService } from './core/services/micro-service.service';
+import * as Joi from 'joi';
 
 
 @Module({
@@ -18,6 +18,12 @@ import { MicroserviceCommunicationService } from './core/services/micro-service.
       isGlobal: true,
       cache: true,
       load: [config],
+      validationSchema: Joi.object({
+        JWT_SECRET: Joi.string().required(),
+        JWT_EXPIRATION: Joi.string().required(),
+        HTTP_PORT: Joi.number().required(),
+        TCP_PORT: Joi.number().required(),
+      }),
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,

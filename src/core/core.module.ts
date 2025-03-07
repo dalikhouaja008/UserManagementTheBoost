@@ -10,11 +10,11 @@ import { RefreshToken, RefreshTokenSchema } from 'src/authentication/schema/refr
 import { ResetToken, ResetTokenSchema } from 'src/authentication/schema/resetToken.schema';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { MicroserviceCommunicationService } from './services/micro-service.service';
+import { SERVICES } from 'src/constants/service';
 
 @Global()
 @Module({
   imports: [
-    // Configuration JWT
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -22,22 +22,23 @@ import { MicroserviceCommunicationService } from './services/micro-service.servi
         signOptions: { expiresIn: '10h' },
       }),
     }),
-    // Configuration MongoDB
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
       { name: ResetToken.name, schema: ResetTokenSchema }
     ]),
-    // Configuration Microservices
     ClientsModule.registerAsync([
       {
-        name: 'LAND_SERVICE',
-        useFactory: (config: ConfigService) => ({
+        name: SERVICES.LAND,
+        useFactory: (configService: ConfigService) => ({
           transport: Transport.TCP,
           options: {
-            host: config.get('LAND_SERVICE_HOST'),
-            port: config.get('LAND_SERVICE_PORT'),
+            host: configService.get('LAND_HOST', 'land'),
+            port: configService.get('LAND_PORT', 3003),
+            timeout: 5000,
+            retryAttempts: 3,
+            retryDelay: 1000,
           },
         }),
         inject: [ConfigService],
@@ -52,6 +53,7 @@ import { MicroserviceCommunicationService } from './services/micro-service.servi
   exports: [
     JwtModule,
     MongooseModule,
+    ClientsModule,
     MailService,
     TwoFactorAuthService,
     MicroserviceCommunicationService
