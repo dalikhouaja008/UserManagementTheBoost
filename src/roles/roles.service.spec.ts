@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RolesService } from './roles.service';
 import { getModelToken } from '@nestjs/mongoose';
-import { RoleType } from './schemas/role.schema';
+import { UserRole } from './enums/roles.enum';
+
 
 describe('RolesService', () => {
   let service: RolesService;
@@ -19,7 +20,7 @@ describe('RolesService', () => {
       providers: [
         RolesService,
         {
-          provide: getModelToken(RoleType.name),
+          provide: getModelToken(UserRole.USER),
           useValue: mockRoleTypeModel,
         },
       ],

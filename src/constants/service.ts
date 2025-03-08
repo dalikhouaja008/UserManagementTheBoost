@@ -1,5 +1,4 @@
 export const SERVICES = {
-    USER_AUTH: 'user_auth',  // Service combiné pour User et Auth
     LAND: 'land'
   };
   

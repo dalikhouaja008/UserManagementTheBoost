@@ -12,6 +12,7 @@ import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
 
 
+
 @Module({
   imports: [
     ConfigModule.forRoot({ //facilite l'utilisation des variables d'environnement
@@ -23,6 +24,8 @@ import * as Joi from 'joi';
         JWT_EXPIRATION: Joi.string().required(),
         HTTP_PORT: Joi.number().required(),
         TCP_PORT: Joi.number().required(),
+        REDIS_HOST: Joi.string().required(),
+        REDIS_PORT: Joi.number().required(),
       }),
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
@@ -42,7 +45,7 @@ import * as Joi from 'joi';
     ScheduleModule.forRoot(),
     CoreModule,
     GuardsModule,
-
+    
   ],
 })
 export class AppModule {}

@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Role, RoleSchema } from '../roles/schemas/role.schema';
 import { MailService } from '../services/mail.service';
 import { TwoFactorAuthService } from '../authentication/TwoFactorAuth.service';
@@ -11,6 +11,9 @@ import { ResetToken, ResetTokenSchema } from 'src/authentication/schema/resetTok
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { MicroserviceCommunicationService } from './services/micro-service.service';
 import { SERVICES } from 'src/constants/service';
+import { RedisModule } from '@nestjs-modules/ioredis';
+import { RedisCacheModule } from 'src/redis/redis-cache.module';
+import { RedisCacheService } from 'src/redis/redis-cahce.service';
 
 @Global()
 @Module({
@@ -43,12 +46,43 @@ import { SERVICES } from 'src/constants/service';
         }),
         inject: [ConfigService],
       },
+
     ]),
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const host = configService.get<string>('REDIS_HOST');
+        const port = configService.get<number>('REDIS_PORT');
+
+        console.log('Redis Configuration:', { host, port });
+
+        return {
+          type: 'single',
+          name: 'default',
+          config: {
+            host: host || '127.0.0.1',
+            port: port || 6379,
+            retryStrategy: (times: number) => {
+              console.log(`Attempting to reconnect to Redis (attempt ${times})`);
+              return Math.min(times * 1000, 5000);
+            },
+            enableReadyCheck: true,
+            maxRetriesPerRequest: 3,
+            onError: (err) => {
+              console.error('Redis Error:', err);
+            },
+          },
+        };
+      },
+    }),
+
   ],
   providers: [
     MailService,
     TwoFactorAuthService,
-    MicroserviceCommunicationService
+    MicroserviceCommunicationService,
+    RedisCacheService,
   ],
   exports: [
     JwtModule,
@@ -56,7 +90,10 @@ import { SERVICES } from 'src/constants/service';
     ClientsModule,
     MailService,
     TwoFactorAuthService,
-    MicroserviceCommunicationService
+    MicroserviceCommunicationService,
+    RedisCacheService,
+    RedisModule,
+
   ]
 })
 export class CoreModule { }
