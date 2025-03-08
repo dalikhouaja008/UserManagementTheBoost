@@ -4,8 +4,8 @@ import { AuthenticationResolver } from './authentication.resolver';
 import { CoreModule } from '../core/core.module';
 import { RolesModule } from '../roles/roles.module';
 import { GuardsModule } from 'src/guards/guards.module';
-import { MicroserviceCommunicationService } from 'src/core/services/micro-service.service';
 import { AuthenticationMicroserviceResolver } from './authentication.microservice.resolver';
+import { TokenService } from './token.service';
 
   @Module({
     imports: [
@@ -16,7 +16,8 @@ import { AuthenticationMicroserviceResolver } from './authentication.microservic
     providers: [
       AuthenticationMicroserviceResolver,
       AuthenticationService,
-      AuthenticationResolver
+      AuthenticationResolver,
+      TokenService
     ],
     exports: [
       AuthenticationService

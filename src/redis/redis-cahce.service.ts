@@ -19,7 +19,15 @@ export class RedisCacheService {
       this.logger.error('Redis client error:', error);
     });
   }
-
+  async keys(pattern: string): Promise<string[]> {
+    try {
+      // Utiliser directement l'instance Redis
+      return await this.redis.keys(pattern);
+    } catch (error) {
+      this.logger.error('Error getting keys:', error);
+      throw new Error('Redis keys operation failed');
+    }
+  }
   async get(key: string): Promise<any> {
     try {
       const data = await this.redis.get(key);
@@ -101,6 +109,41 @@ export class RedisCacheService {
       ]);
     } catch (error) {
       this.logger.error(`Error invalidating user cache: ${error.message}`);
+    }
+  }
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    try {
+      return await this.redis.sadd(key, ...members);
+    } catch (error) {
+      this.logger.error(`Error adding to set ${key}:`, error);
+      throw error;
+    }
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    try {
+      return await this.redis.smembers(key);
+    } catch (error) {
+      this.logger.error(`Error getting set members ${key}:`, error);
+      return [];
+    }
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    try {
+      return await this.redis.srem(key, ...members);
+    } catch (error) {
+      this.logger.error(`Error removing from set ${key}:`, error);
+      throw error;
+    }
+  }
+  async exists(key: string): Promise<boolean> {
+    try {
+      const result = await this.redis.exists(key);
+      return result === 1;
+    } catch (error) {
+      this.logger.error(`Error checking existence of key ${key}:`, error);
+      return false;
     }
   }
 }

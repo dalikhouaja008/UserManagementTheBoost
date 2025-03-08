@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
-import { Resource } from '../roles/enums/resource.enum';
-import { Action } from '../roles/enums/action.enum';
+import { Resource } from '../../roles/enums/resource.enum';
+import { Action } from '../../roles/enums/action.enum';
 
 export interface RequiredPermission {
   resource: Resource;

@@ -8,7 +8,7 @@ import { Action } from './enums/action.enum';
 import { AuthorizationGuard } from 'src/guards/authorization.guards';
 import { CreateRoleInput } from './dtos/create-role.input';
 import { UpdateRoleInput } from './dtos/update-role.input';
-import { Permissions } from '../decorators/permissions.decorator';
+import { Permissions } from '../core/decorators/permissions.decorator';
 
 @Resolver(() => Role)
 export class RolesResolver {

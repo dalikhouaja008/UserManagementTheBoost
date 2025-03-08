@@ -26,6 +26,8 @@ import { UserRole } from 'src/roles/enums/roles.enum';
 import { Resource } from 'src/roles/enums/resource.enum';
 import { Action } from 'src/roles/enums/action.enum';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
+import { TokenService } from './token.service';
+import { Session } from './dto/session.type';
 
 @Injectable()
 export class AuthenticationService {
@@ -43,6 +45,7 @@ export class AuthenticationService {
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
     private readonly redisCacheService: RedisCacheService,
+    private readonly tokenService: TokenService
   ) { }
   /**
   * Méthode utilitaire pour trouver un utilisateur
@@ -139,47 +142,78 @@ export class AuthenticationService {
   /**
    * Méthode utilitaire pour se connecter à l'application
    */
-  async login(credentials: LoginInput): Promise<LoginResponse> {
-    const { email, password } = credentials;
+  async login(credentials: LoginInput, deviceInfo: any): Promise<LoginResponse> {
+    const timestamp = new Date().toISOString();
 
-    const user = await this.findUser(email, 'email', true);
+    try {
+      console.log(`[${timestamp}] 🔑 Login attempt for email: ${credentials.email}`);
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) {
-      throw new UnauthorizedException('Wrong credentials');
-    }
+      const user = await this.findUser(credentials.email, 'email');
+      if (!user) {
+        throw new UnauthorizedException('Identifiants invalides');
+      }
 
-    // Si 2FA est activé
-    if (user.isTwoFactorEnabled) {
-      // Générer un token temporaire pour la vérification 2FA
-      const tempToken = this.jwtService.sign(
-        {
-          userId: user._id,
-          role: user.role,
-          isTwoFactorAuthenticated: false,
-          isTemp: true
-        },
-        { expiresIn: '5m' } // Token temporaire valide 5 minutes
+      const isPasswordValid = await bcrypt.compare(
+        credentials.password,
+        user.password
+      );
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Identifiants invalides');
+      }
+
+      if (user.isTwoFactorEnabled) {
+        console.log(`[${timestamp}] 🔐 2FA is enabled for user: ${user.email}`);
+
+        const tempToken = this.jwtService.sign(
+          {
+            userId: user._id,
+            isTemp: true
+          },
+          {
+            expiresIn: '5m',
+            secret: process.env.JWT_SECRET
+          }
+        );
+
+        // Stocker les informations temporaires selon votre interface TempTokenData
+        await this.tokenService.storeTempToken(user._id.toString(), {
+          token: tempToken,
+          deviceInfo: deviceInfo,
+          type: 'twoFactor',
+        });
+
+        return {
+          requiresTwoFactor: true,
+          tempToken,
+          accessToken: null,
+          refreshToken: null,
+          user: null,
+          deviceInfo,
+          sessionId: null
+        };
+      }
+
+      const tokens = await this.generateUserTokens(
+        user._id,
+        false,
+        deviceInfo
       );
 
       return {
-        requiresTwoFactor: true,
-        tempToken,
+        requiresTwoFactor: false,
+        tempToken: null,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
         user,
-        accessToken: null,
-        refreshToken: null
+        deviceInfo,
+        sessionId: tokens.sessionId
       };
-    }
 
-    // Si pas de 2FA, générer les tokens normaux
-    const tokens = await this.generateUserTokens(user._id, true);
-    return {
-      requiresTwoFactor: false,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user,
-      tempToken: null
-    };
+    } catch (error) {
+      console.error(`[${timestamp}] ❌ Login failed:`, error.message);
+      throw error;
+    }
   }
 
   /**
@@ -238,26 +272,55 @@ export class AuthenticationService {
   }
 
   /**
-  * Méthode utilitaire pour générer les tokens d'accès et de rafraichissement
+  * Partie gestion des tokens
   */
   async refreshTokens(refreshToken: string) {
-    const token = await this.RefreshTokenModel.findOne({
-      token: refreshToken,
-      expiryDate: { $gte: new Date() },
-    });
+    // Vérifier d'abord dans Redis
+    const sessions = await this.tokenService.findSessionByRefreshToken(refreshToken);
+    if (!sessions) {
+      // Si pas dans Redis, vérifier dans MongoDB (pour la rétrocompatibilité)
+      const token = await this.RefreshTokenModel.findOne({
+        token: refreshToken,
+        expiryDate: { $gte: new Date() },
+      });
 
-    if (!token) {
-      throw new UnauthorizedException('Refresh Token is invalid');
+      if (!token) {
+        throw new UnauthorizedException('Refresh Token is invalid');
+      }
+
+      // Si trouvé dans MongoDB, migrer vers Redis
+      const newTokens = await this.generateUserTokens(
+        token.userId.toString(),
+        false,
+        sessions?.deviceInfo || {
+          userAgent: 'default',
+          ip: 'unknown',
+          device: 'unknown'
+        }
+      );
+      return newTokens;
     }
-    return this.generateUserTokens(token.userId.toString(), false);
+
+    // Utiliser les informations du device stockées dans la session
+    return this.generateUserTokens(
+      sessions.userId,
+      false,
+      sessions.deviceInfo
+    );
   }
-  async generateUserTokens(userId: string | Types.ObjectId, isTwoFactorAuthenticated = false) {
-    const user = await this.findUser(userId.toString(), 'id', true);
+
+  private async generateUserTokens(
+    userId: string | Types.ObjectId,
+    isTwoFactorAuthenticated: boolean,
+    deviceInfo: any
+  ) {
+    const sessionId = uuidv4();
+    const user = await this.findUser(userId.toString(), 'id');
 
     const payload = {
       userId: user._id,
-      role: user.role,
-      isTwoFactorAuthenticated,
+      sessionId,
+      isTwoFactorAuthenticated
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -266,14 +329,22 @@ export class AuthenticationService {
     });
 
     const refreshToken = uuidv4();
-    await this.storeRefreshToken(refreshToken, userId);
+
+    // Stocker la session
+    await this.tokenService.storeUserToken(user._id.toString(), {
+      accessToken,
+      refreshToken,
+      deviceInfo,
+      loginTime: new Date(),
+    });
 
     return {
       accessToken,
       refreshToken,
+      deviceInfo,
+      sessionId
     };
   }
-
   async storeRefreshToken(token: string, userId: string | Types.ObjectId) {
     // Calculate expiry date 3 days from now
     const expiryDate = new Date();
@@ -383,7 +454,10 @@ export class AuthenticationService {
     };
   }
 
-  //2FA authentication
+  /**
+  * Partie 2FA authentification
+  */
+
   // Trouver un utilisateur par ID
   async findUserById(userId: string): Promise<User | null> {
     return this.findUser(userId, 'id', false);
@@ -450,27 +524,87 @@ export class AuthenticationService {
     return updatedUser;
   }
 
-  async verifyTwoFactorToken(userId: string, token: string) {
-    const user = await this.findUser(userId, 'id', true);
+  async verifyTwoFactorToken(
+    userId: string,
+    token: string
+  ): Promise<LoginResponse> {
+    try {
+      // Vérifier si l'utilisateur est bloqué
+      if (await this.tokenService.isUserBlocked(userId)) {
+        throw new UnauthorizedException('Trop de tentatives échouées. Veuillez réessayer plus tard.');
+      }
 
-    if (!user.twoFactorSecret) {
-      throw new UnauthorizedException('2FA non activé');
+      const user = await this.findUser(userId, 'id', true);
+
+      if (!user.twoFactorSecret) {
+        throw new UnauthorizedException('2FA non activé');
+      }
+
+      // Récupérer la session temporaire
+      const tempSession = await this.tokenService.getTempToken(userId);
+      if (!tempSession) {
+        throw new UnauthorizedException('Session de vérification 2FA expirée');
+      }
+
+      const isValid = this.twoFactorAuthService.validateToken(
+        user.twoFactorSecret,
+        token
+      );
+
+      if (!isValid) {
+        const attempts = await this.tokenService.incrementFailedAttempts(userId);
+        const remainingAttempts = this.tokenService.MAX_FAILED_ATTEMPTS - attempts;
+
+        throw new UnauthorizedException(
+          `Code 2FA invalide. ${remainingAttempts} tentatives restantes.`
+        );
+      }
+
+      // Réinitialiser le compteur d'échecs
+      await this.tokenService.resetFailedAttempts(userId);
+
+      // Générer les nouveaux tokens
+      const tokens = await this.generateUserTokens(
+        userId,
+        true,
+        tempSession.deviceInfo
+      );
+
+      // Nettoyer la session temporaire
+      await this.tokenService.deleteTempToken(userId);
+
+      const loginResponse: LoginResponse = {
+        requiresTwoFactor: false,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user,
+        tempToken: null,
+        sessionId: tokens.sessionId,
+        deviceInfo: tempSession.deviceInfo
+      };
+
+      return loginResponse;
+
+    } catch (error) {
+      this.logger.error(`2FA verification failed for user ${userId}:`, error);
+      throw error;
     }
-
-    const isValid = this.twoFactorAuthService.validateToken(
-      user.twoFactorSecret,
-      token
-    );
-
-    if (!isValid) {
-      throw new UnauthorizedException('Code 2FA invalide');
-    }
-
-    // Générer un nouveau token avec 2FA validé
-    return this.generateUserTokens(userId, true);
   }
 
-  //Partie rôle
+  // Dans le TokenService, ajoutez cette méthode si elle n'existe pas :
+  async getTempToken(userId: string) {
+    try {
+      const tempToken = await this.redisCacheService.get(`temp_token:${userId}`);
+      return tempToken;
+    } catch (error) {
+      this.logger.error(`Error getting temp token for user ${userId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+* Partie gestion des rôles pour les administrateurs
+*/
   async updateUserRole(userId: string, newRole: UserRole, adminId: string) {
     const admin = await this.findUser(adminId, 'id', true);
 
@@ -515,6 +649,77 @@ export class AuthenticationService {
     }
 
     return permissions;
+  }
+
+  /**
+ * Déconnexion d'une session spécifique
+ */
+  async logout(userId: string, sessionId: string): Promise<boolean> {
+    try {
+      // Suppression de la session
+      await this.tokenService.deleteSession(userId, sessionId);
+      return true;
+    } catch (error) {
+      console.error('Logout error:', error);
+      throw error;
+    }
+  }
+  /**
+* Déconnexion de toutes les sessions d'un utilisateur
+*/
+  async logoutAllDevices(userId: string): Promise<boolean> {
+    try {
+      // Supprimer toutes les sessions de l'utilisateur
+      await this.tokenService.deleteAllSessions(userId);
+      this.logger.log(`Toutes les sessions ont été déconnectées pour l'utilisateur ${userId}`);
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Erreur lors de la déconnexion de toutes les sessions:`, error);
+      throw error;
+    }
+  }
+  /**
+ * Révoquer une session spécifique
+ */
+  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+    try {
+      // Vérifier si la session existe
+      const session = await this.tokenService.getSession(userId, sessionId);
+      if (!session) {
+        throw new UnauthorizedException('Session introuvable');
+      }
+
+      // Révoquer la session
+      await this.tokenService.deleteSession(userId, sessionId);
+      this.logger.log(`Session ${sessionId} révoquée pour l'utilisateur ${userId}`);
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Erreur lors de la révocation de la session:`, error);
+      throw error;
+    }
+  }
+  /**
+* Récupérer toutes les sessions actives d'un utilisateur
+*/
+  async getActiveSessions(userId: string): Promise<Session[]> {
+    try {
+      const sessions = await this.tokenService.getAllSessions(userId);
+      return sessions.map(session => ({
+        id: session.sessionId,
+        deviceInfo: {
+          userAgent: session.deviceInfo?.userAgent || 'Unknown',
+          ip: session.deviceInfo?.ip || 'Unknown',
+          device: session.deviceInfo?.device || 'Unknown'
+        },
+        createdAt: session.loginTime || new Date().toISOString(),
+        lastActive: session.lastActive || session.loginTime || new Date().toISOString()
+      }));
+    } catch (error) {
+      this.logger.error(`Error getting active sessions for user ${userId}:`, error);
+      throw error;
+    }
   }
 
 }

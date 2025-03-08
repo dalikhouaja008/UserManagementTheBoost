@@ -89,6 +89,14 @@ A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date
 """
 scalar DateTime
 
+type DeviceInfo {
+  userAgent: String
+  ip: String
+  device: String
+  browser: String
+  os: String
+}
+
 type LoginResponse {
   """JWT Access Token"""
   accessToken: String
@@ -104,10 +112,24 @@ type LoginResponse {
 
   """Informations de l'utilisateur"""
   user: User
+
+  """ID de la session"""
+  sessionId: String
+
+  """Informations sur l'appareil"""
+  deviceInfo: DeviceInfo
+}
+
+type Session {
+  id: String!
+  deviceInfo: DeviceInfo!
+  createdAt: String!
+  lastActive: String!
 }
 
 type Query {
   validateUser(userId: String!): User!
+  getActiveSessions: [Session!]!
   roles: [Role!]!
   role(name: String!): Role!
   getRolePermissions(name: String!): [Permission!]!
@@ -117,7 +139,6 @@ type Mutation {
   signUp(signupData: UserInput!): User!
   createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
-  refreshTokens(refreshTokenData: RefreshTokenInput!): String!
   changePassword(changePasswordData: ChangePasswordInput!): String!
   forgotPassword(forgotPasswordData: ForgotPasswordInput!): String!
   requestReset(email: String!): String!
@@ -126,6 +147,9 @@ type Mutation {
   enableTwoFactorAuth: String!
   verifyTwoFactorAuth(token: String!): Boolean!
   verifyTwoFactorLogin(token: String!): LoginResponse!
+  logout: Boolean!
+  logoutAllDevices: Boolean!
+  revokeSession(sessionId: String!): Boolean!
   createRole(createRoleInput: CreateRoleInput!): Role!
   updateRole(updateRoleInput: UpdateRoleInput!): Role!
   deleteRole(name: String!): Boolean!
@@ -157,10 +181,13 @@ input UserInput {
 input LoginInput {
   email: String!
   password: String!
+  deviceInfo: DeviceInfoInput
 }
 
-input RefreshTokenInput {
-  refreshToken: String!
+input DeviceInfoInput {
+  userAgent: String
+  ip: String
+  device: String
 }
 
 input ChangePasswordInput {
