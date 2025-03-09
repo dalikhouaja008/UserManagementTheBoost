@@ -1,5 +1,6 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsEmail, IsString, IsOptional, IsBoolean, MinLength, IsNotEmpty } from 'class-validator';
+import { Prop } from '@nestjs/mongoose';
+import { IsEmail, IsString, IsOptional, IsBoolean, MinLength, IsNotEmpty, IsPhoneNumber } from 'class-validator';
 
 @InputType()
 export class UserInput {
@@ -30,6 +31,14 @@ export class UserInput {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
+
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsPhoneNumber('TN') // Adjust for your region if needed
+  phoneNumber?: string;
+
+  
   @IsOptional()
   @IsString()
   publicKey?: string;

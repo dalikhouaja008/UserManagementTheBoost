@@ -2,29 +2,52 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
 # ------------------------------------------------------
 
-type PermissionType {
+type Permission {
   resource: Resource!
   actions: [Action!]!
 }
 
-"""Type de ressource disponible"""
+"""Resources disponibles dans le service user-management"""
 enum Resource {
-  settings
-  products
-  users
+  USERS
+  ROLES
+  AUTH
+  SETTINGS
+  LAND
+  LAND_VALIDATION
+  LAND_DOCUMENTS
+  LAND_HISTORY
+  NOTIFICATIONS
+  DOCUMENTS
 }
 
-"""Type de permission"""
+"""Actions disponibles dans l'application"""
 enum Action {
-  read
-  create
-  update
-  delete
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  VALIDATE
+  REJECT
+  SIGN
+  MEASURE
+  REVIEW
+  UPLOAD_LAND
+  EDIT_LAND
+  DELETE_LAND
+  VIEW_OWN_LANDS
+  UPLOAD
+  DOWNLOAD
+  SUBMIT
+  APPROVE
+  REQUEST_CHANGES
+  SEND
+  RECEIVE
 }
 
-type RoleType {
+type Role {
   name: String!
-  permissions: [PermissionType!]!
+  permissions: [Permission!]!
 }
 
 type User {
@@ -59,12 +82,23 @@ type User {
 
   """Date de mise à jour du compte"""
   updatedAt: DateTime!
+
+  """Numéro de téléphone de l'utilisateur"""
+  phoneNumber: String
 }
 
 """
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
+
+type DeviceInfo {
+  userAgent: String
+  ip: String
+  device: String
+  browser: String
+  os: String
+}
 
 type LoginResponse {
   """JWT Access Token"""
@@ -81,23 +115,48 @@ type LoginResponse {
 
   """Informations de l'utilisateur"""
   user: User
+
+  """ID de la session"""
+  sessionId: String
+
+  """Informations sur l'appareil"""
+  deviceInfo: DeviceInfo
+}
+
+type Session {
+  id: String!
+  deviceInfo: DeviceInfo!
+  createdAt: String!
+  lastActive: String!
 }
 
 type Query {
   validateUser(userId: String!): User!
+  getActiveSessions: [Session!]!
+  roles: [Role!]!
+  role(name: String!): Role!
+  getRolePermissions(name: String!): [Permission!]!
 }
 
 type Mutation {
   signUp(signupData: UserInput!): User!
+  createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
-  refreshTokens(refreshTokenData: RefreshTokenInput!): String!
   changePassword(changePasswordData: ChangePasswordInput!): String!
-  forgotPassword(forgotPasswordData: ForgotPasswordInput!): String!
-  requestReset(email: String!): String!
-  verifyCode(email: String!, code: String!): String!
   resetPassword(resetPasswordData: ResetPasswordInput!): User!
+  forgotPassword(email: String!): String!
+  requestReset(email: String!): String!
+  verifyCode(identifier: String!, code: String!): String!
   enableTwoFactorAuth: String!
   verifyTwoFactorAuth(token: String!): Boolean!
+  verifyTwoFactorLogin(token: String!): LoginResponse!
+  logout: Boolean!
+  logoutAllDevices: Boolean!
+  revokeSession(sessionId: String!): Boolean!
+  createRole(createRoleInput: CreateRoleInput!): Role!
+  updateRole(updateRoleInput: UpdateRoleInput!): Role!
+  deleteRole(name: String!): Boolean!
+  forgotPasswordSms(phoneNumber: String!): String!
   create(input: CreateRoleDtoInput!): RoleType!
 }
 
@@ -115,7 +174,7 @@ input UserInput {
   role: String
 
   """Clé publique de la wallet de l'utilisateur"""
-  publicKey: String
+  phoneNumber: String
 
   """Secret pour l'authentification à deux facteurs"""
   twoFactorSecret: String
@@ -127,10 +186,13 @@ input UserInput {
 input LoginInput {
   email: String!
   password: String!
+  deviceInfo: DeviceInfoInput
 }
 
-input RefreshTokenInput {
-  refreshToken: String!
+input DeviceInfoInput {
+  userAgent: String
+  ip: String
+  device: String
 }
 
 input ChangePasswordInput {
@@ -139,17 +201,12 @@ input ChangePasswordInput {
   newPassword: String!
 }
 
-input ForgotPasswordInput {
-  email: String!
-}
-
 input ResetPasswordInput {
-  email: String!
-  code: String!
+  token: String!
   newPassword: String!
 }
 
-input CreateRoleDtoInput {
+input CreateRoleInput {
   name: String!
   permissions: [PermissionInput!]!
 }
@@ -157,4 +214,9 @@ input CreateRoleDtoInput {
 input PermissionInput {
   resource: Resource!
   actions: [Action!]!
+}
+
+input UpdateRoleInput {
+  name: String!
+  permissions: [PermissionInput!]!
 }

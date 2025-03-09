@@ -33,6 +33,11 @@ export class ResetToken extends Document {
 
   @Field(() => Date, { description: 'La date de mise à jour du token' }) // Décorateur GraphQL
   updatedAt: Date;
+
+  @Prop({ required: false })
+@Field(() => String, { description: "Phone number associated with the reset token", nullable: true })
+phoneNumber?: string;
+
 }
 
 export const ResetTokenSchema = SchemaFactory.createForClass(ResetToken);
