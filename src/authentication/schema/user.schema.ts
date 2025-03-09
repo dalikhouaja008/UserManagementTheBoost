@@ -65,6 +65,14 @@ export class User {
 
   @Field(() => Date, { description: 'Date de mise à jour du compte' })
   updatedAt: Date;
+
+  @Prop({ required: false, unique: true })
+  @Field(() => String, {
+  description: "Numéro de téléphone de l'utilisateur",
+  nullable: true,
+})
+phoneNumber?: string;
+
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

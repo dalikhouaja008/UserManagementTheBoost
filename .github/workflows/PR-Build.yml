@@ -4,14 +4,13 @@ on:
   workflow_dispatch: # Déclenchement manuel
   push: # Déclenchement automatique sur push
     branches: 
-
      - 'test_ci-*'   # Uniquement sur les branches commençant par 'test_ci-'
     paths-ignore:    # Ignore les changements dans ces fichiers
      - '**.md'
      - 'docs/**'
      - '.gitignore'
      - 'LICENSE'
-
+     
 jobs:
   all-tasks:
     name: Build, Test, and Lint
