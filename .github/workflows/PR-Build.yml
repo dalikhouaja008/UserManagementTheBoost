@@ -1,13 +1,16 @@
 name: Build and Test
 
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch: # Déclenchement manuel
+  push: # Déclenchement automatique sur push
     branches: 
-     - 'test_ci-*'
-    paths:
-      - '.github/workflows/PR-Build.yml'
-
+     - 'test_ci-*'   # Uniquement sur les branches commençant par 'test_ci-'
+    paths-ignore:    # Ignore les changements dans ces fichiers
+     - '**.md'
+     - 'docs/**'
+     - '.gitignore'
+     - 'LICENSE'
+     
 jobs:
   all-tasks:
     name: Build, Test, and Lint
@@ -17,22 +20,22 @@ jobs:
     # Setup environment
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Setup Node.js
+      # Setup nodejs
+    - name: Setup Node.js  
       uses: actions/setup-node@v4
       with:
         node-version: 20.x
         cache: 'npm'
-
+    # démarrage mongoDB
     - name: Start MongoDB
       uses: supercharge/mongodb-github-action@1.10.0
       with:
         mongodb-version: '7.0'
-
+    #Installation des dépendances
     - name: Install dependencies
       run: npm ci
 
-    # Linting
+    # Linting c'est la Phase de Qualité du Code
     - name: Run ESLint
       run: npm run lint
       
@@ -45,7 +48,7 @@ jobs:
 
     - name: Generate test coverage
       run: npm run test:cov
-
+    #Sauvegarde des Rapports de couverture
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@v4
@@ -57,7 +60,7 @@ jobs:
     # Building
     - name: Build application
       run: npm run build
-
+    #Sauvegarde des Artifacts de Build
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -70,8 +73,8 @@ jobs:
       if: always()
       run: |
         if [[ "${{ job.status }}" == "success" ]]; then
-          echo "✅ All steps completed successfully!"
+          echo " All steps completed successfully!"
         else
-          echo "❌ One or more steps failed!"
+          echo " One or more steps failed!"
           exit 1
         fi

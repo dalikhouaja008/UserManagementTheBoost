@@ -1,26 +1,31 @@
 import { ObjectType, Field } from '@nestjs/graphql';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document } from 'mongoose';
 import { Resource } from '../enums/resource.enum';
 import { Action } from '../enums/action.enum';
-import { SchemaFactory } from '@nestjs/mongoose';
 
-// Define el tipo Permission como un ObjectType (para consultas)
 @ObjectType()
-export class PermissionType {
+export class Permission {
     @Field(() => Resource)
+    @Prop({ type: String, enum: Resource, required: true })
     resource: Resource;
 
     @Field(() => [Action])
+    @Prop({ type: [String], enum: Action, required: true })
     actions: Action[];
 }
 
-// Define el tipo Role como un ObjectType (para consultas)
+@Schema({ timestamps: true })
 @ObjectType()
-export class RoleType {
+export class Role extends Document {
     @Field()
+    @Prop({ required: true, unique: true })
     name: string;
 
-    @Field(() => [PermissionType])
-    permissions: PermissionType[];
+    @Field(() => [Permission])
+    @Prop({ type: [{ resource: String, actions: [String] }], required: true })
+    permissions: Permission[];
 }
-export const RoleSchema = SchemaFactory.createForClass(RoleType);
+
+export const RoleSchema = SchemaFactory.createForClass(Role);
 
