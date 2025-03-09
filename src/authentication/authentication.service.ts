@@ -188,7 +188,7 @@ export class AuthenticationService {
           tempToken,
           accessToken: null,
           refreshToken: null,
-          user: null,
+          user: user,
           deviceInfo,
           sessionId: null
         };

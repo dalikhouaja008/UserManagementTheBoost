@@ -1,5 +1,6 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { nanoid } from 'nanoid';
+import { SessionConfig } from 'src/config/session';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 
 
@@ -387,4 +388,43 @@ export class TokenService {
             this.logger.error(`Error updating session last active time:`, error);
         }
     }
+
+     // Révoquer une session spécifique
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    // Supprimer la session spécifique
+    await this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`);
+    // Retirer l'ID de session de l'ensemble des sessions
+    await this.redisCacheService.srem(
+      `${this.USER_SESSIONS_PREFIX}${userId}`,
+      sessionId
+    );
+  }
+
+  // Révoquer toutes les sessions
+  async revokeAllSessions(userId: string): Promise<void> {
+    const sessionIds = await this.redisCacheService.smembers(
+      `${this.USER_SESSIONS_PREFIX}${userId}`
+    );
+
+    // Supprimer toutes les sessions individuelles
+    await Promise.all(
+      sessionIds.map(sessionId =>
+        this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`)
+      )
+    );
+
+    // Supprimer l'ensemble des sessions
+    await this.redisCacheService.del(`${this.USER_SESSIONS_PREFIX}${userId}`);
+  }
+  async updateLastActive(userId: string, sessionId: string): Promise<void> {
+    const session = await this.getSession(userId, sessionId);
+    if (session) {
+      session.lastActive = new Date();
+      await this.redisCacheService.set(
+        `${this.SESSION_PREFIX}${userId}:${sessionId}`,
+        session,
+        SessionConfig.SESSION_TTL
+      );
+    }
+  }
 }
