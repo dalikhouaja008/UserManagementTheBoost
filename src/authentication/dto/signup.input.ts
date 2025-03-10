@@ -30,6 +30,8 @@ export class UserInput {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
+
+
   @IsOptional()
   @IsString()
   publicKey?: string;
