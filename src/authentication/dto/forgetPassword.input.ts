@@ -8,3 +8,4 @@ export class ForgotPasswordInput {
   @IsNotEmpty()
   email: string;
 }
+

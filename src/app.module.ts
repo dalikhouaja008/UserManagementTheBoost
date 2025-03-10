@@ -7,6 +7,13 @@ import config from './config/config';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RolesModule } from './roles/roles.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { CoreModule } from './core/core.module';
+import { GuardsModule } from './guards/guards.module';
+import * as Joi from 'joi';
+import { MailService } from './services/mail.service';
+
+
+
 
 
 @Module({
@@ -15,6 +22,14 @@ import { ScheduleModule } from '@nestjs/schedule';
       isGlobal: true,
       cache: true,
       load: [config],
+      validationSchema: Joi.object({
+        JWT_SECRET: Joi.string().required(),
+        JWT_EXPIRATION: Joi.string().required(),
+        HTTP_PORT: Joi.number().required(),
+        TCP_PORT: Joi.number().required(),
+        REDIS_HOST: Joi.string().required(),
+        REDIS_PORT: Joi.number().required(),
+      }),
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
@@ -31,6 +46,11 @@ import { ScheduleModule } from '@nestjs/schedule';
     AuthenticationModule,
     RolesModule,
     ScheduleModule.forRoot(),
+    CoreModule,
+    GuardsModule,
+    
   ],
+  
+  providers: [MailService],
 })
 export class AppModule {}

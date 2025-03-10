@@ -1,37 +1,38 @@
 import * as nodemailer from 'nodemailer';
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MailService {
   private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(MailService.name);
-  
-  constructor() {
+
+  constructor(private configService: ConfigService) {
     this.transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
+      host: this.configService.get<string>('EMAIL_HOST'),
+      port: this.configService.get<number>('EMAIL_PORT'),
       auth: {
-        user: 'genesis.gottlieb@ethereal.email', // My Ethereal email
-        pass: 'ZeVEfRRSP5U4Mg2Zrm', //My Ethereal password
+        user: this.configService.get<string>('EMAIL_USER'),
+        pass: this.configService.get<string>('EMAIL_PASS'),
       },
     });
   }
 
-  // Envoyer objet mailOptions
   async sendMail(mailOptions: { to: string; subject: string; text: string; html: string }): Promise<void> {
     try {
+      this.logger.log(`Attempting to send email to ${mailOptions.to}`);
       await this.transporter.sendMail(mailOptions);
-      console.log(`Email envoyé à ${mailOptions.to}`);
+      this.logger.log(`Email sent to ${mailOptions.to}`);
     } catch (error) {
-      console.error('Erreur lors de l\'envoi de l\'email:', error);
-      throw new Error('Impossible d\'envoyer l\'email');
+      this.logger.error('Error sending email:', error.message);
+      throw new Error('Could not send email');
     }
   }
 
   async sendPasswordResetEmail(to: string, token: string): Promise<void> {
-    const resetLink = `myapp://reset-password?token=${token}&&email=${to}`;
+    const resetLink = `${this.configService.get<string>('FRONTEND_URL')}/reset-password?token=${token}`;
     const mailOptions = {
-      from: 'Auth-backend service <no-reply@yourapp.com>',
+      from: 'Auth-backend service <elhadjyosri@gmail.com>',
       to,
       subject: 'Password Reset Request',
       html: `
@@ -42,6 +43,7 @@ export class MailService {
     };
 
     try {
+      this.logger.log(`Attempting to send password reset email to ${to} with token ${token}`);
       await this.transporter.sendMail(mailOptions);
       this.logger.log(`Password reset email sent to ${to}`);
     } catch (error) {

@@ -4,8 +4,11 @@ on:
   workflow_dispatch: 
   push:
     branches: [ test_ci ]
-    paths:
-      - '.github/workflows/ci.yml'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
 
 jobs:
   build-and-test:

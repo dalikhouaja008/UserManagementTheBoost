@@ -1,14 +1,14 @@
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+<<<<<<< HEAD
 import { Document, SchemaTypes, Types } from 'mongoose';
 import { UserPreferences } from './userPreferences.schema';
+=======
+import { Document,Types } from 'mongoose';
+import { UserRole } from 'src/roles/enums/roles.enum';
+>>>>>>> c09d11afd1c1706073e2ccd3e475b9de63bf655f
 
 
-export enum UserRole {
-  USER = 'user',
-  ADMIN = 'admin',
-  MODERATOR = 'moderator',
-}
 
 export type UserDocument = User & Document;
 
@@ -71,6 +71,7 @@ export class User {
   @Field(() => Date, { description: 'Date de mise à jour du compte' })
   updatedAt: Date;
 
+<<<<<<< HEAD
   @Prop({ required: false, unique: true, sparse: true })
   @Field(() => String, {
     description: "Numéro de téléphone de l'utilisateur",
@@ -84,6 +85,15 @@ export class User {
     nullable: true 
   })
   preferences?: Types.ObjectId | UserPreferences;
+=======
+  @Prop({ required: false, unique: true })
+  @Field(() => String, {
+  description: "Numéro de téléphone de l'utilisateur",
+  nullable: true,
+})
+phoneNumber?: string;
+
+>>>>>>> c09d11afd1c1706073e2ccd3e475b9de63bf655f
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

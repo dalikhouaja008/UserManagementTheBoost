@@ -1,17 +1,87 @@
-import { Resolver, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
 import { RolesService } from './roles.service';
-import { RoleType } from './schemas/role.schema';
-import { CreateRoleDtoInput } from './dtos/role.dto';
+import { Permission, Role } from './schemas/role.schema';
+import { AuthenticationGuard } from '../guards/authentication.guard';
+import { Resource } from './enums/resource.enum';
+import { Action } from './enums/action.enum';
+import { AuthorizationGuard } from 'src/guards/authorization.guards';
+import { CreateRoleInput } from './dtos/create-role.input';
+import { UpdateRoleInput } from './dtos/update-role.input';
+import { Permissions } from '../core/decorators/permissions.decorator';
 
-@Resolver('Roles')
+@Resolver(() => Role)
 export class RolesResolver {
-
   constructor(private readonly rolesService: RolesService) {}
 
-  // Simula una función que crea roles.
-  
-  @Mutation(() => RoleType)  // Spécifiez explicitement le type de retour
-  async create(@Args('input') input: CreateRoleDtoInput): Promise<RoleType> {
-    return this.rolesService.createRole(input);
+  @Query(() => [Role])
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.READ]
+  })
+  async roles() {
+    return this.rolesService.findAll();
+  }
+
+  @Query(() => Role)
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.READ]
+  })
+  async role(@Args('name') name: string) {
+    return this.rolesService.findByName(name);
+  }
+
+  @Mutation(() => Role)
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.CREATE]
+  })
+  async createRole(
+    @Args('createRoleInput') createRoleInput: CreateRoleInput
+  ) {
+    return this.rolesService.createRole(
+      createRoleInput.name,
+      createRoleInput.permissions
+    );
+  }
+
+  @Mutation(() => Role)
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.UPDATE]
+  })
+  async updateRole(
+    @Args('updateRoleInput') updateRoleInput: UpdateRoleInput
+  ) {
+    return this.rolesService.updateRole(
+      updateRoleInput.name,
+      updateRoleInput.permissions
+    );
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.DELETE]
+  })
+  async deleteRole(@Args('name') name: string) {
+    await this.rolesService.deleteRole(name);
+    return true;
+  }
+
+  @Query(() => [Permission])
+  @UseGuards(AuthenticationGuard, AuthorizationGuard)
+  @Permissions({
+    resource: Resource.ROLES,
+    actions: [Action.READ]
+  })
+  async getRolePermissions(@Args('name') name: string) {
+    return this.rolesService.getRolePermissions(name);
   }
 }

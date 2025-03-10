@@ -18,17 +18,23 @@ export class TwoFactorAuthService {
     try {
       return await QRCode.toDataURL(otpauthUrl);
     } catch (error) {
-      throw new Error('Erreur lors de la génération du QR code');
+      // Propager l'erreur réelle
+      throw error instanceof Error ? error : new Error('QR Code generation failed');
     }
   }
 
   // Valider le code OTP fourni par l'utilisateur
   validateToken(secret: string, token: string): boolean {
-    return speakeasy.totp.verify({
-      secret,
-      encoding: 'base32',
-      token,
-      window: 1 // Permet une tolérance d'une période (30 secondes)
-    });
+    try {
+      return speakeasy.totp.verify({
+        secret,
+        encoding: 'base32',
+        token,
+        window: 1 // 30 secondes de tolérance
+      });
+    } catch (error) {
+      // Propager l'erreur réelle
+      throw error instanceof Error ? error : new Error('Token validation failed');
+    }
   }
 }
