@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput } from './dto/login.input';
 import { RefreshTokenInput } from './dto/refreshToken.input';
@@ -22,6 +22,8 @@ import { Session } from './dto/session.type';
 
 @Resolver(() => User)
 export class AuthenticationResolver {
+  private readonly logger = new Logger(AuthenticationResolver.name);
+
   constructor(
     private readonly authService: AuthenticationService,
     private readonly twoFactorAuthService: TwoFactorAuthService,
@@ -31,9 +33,18 @@ export class AuthenticationResolver {
   
 
   @Mutation(() => User)
-  async signUp(@Args('signupData') signupData: UserInput) {
-    return this.authService.signup(signupData);
+async signUp(@Args('signupData') signupData: UserInput) {
+  try {
+    const user = await this.authService.signup(signupData);
+    if (!user || !user._id) {
+      throw new Error('User creation failed - invalid user object returned');
+    }
+    return user;
+  } catch (error) {
+    this.logger.error(`Signup error: ${error.message}`, error.stack);
+    throw error;
   }
+}
 
   // Création de compte spécial (NOTAIRE, GEOMETRE, EXPERT_JURIDIQUE) - Réservé à l'admin
   @Mutation(() => User)
@@ -105,7 +116,15 @@ export class AuthenticationResolver {
     }
   }
   
-
+  @Mutation(() => String)
+  async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
+    try {
+      await this.authService.forgotPasswordSms(phoneNumber);
+      return 'Password reset OTP sent via SMS';
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  }
 
   // Mutation pour demander un code de réinitialisation
   @Mutation(() => String)
@@ -115,22 +134,19 @@ export class AuthenticationResolver {
 
   // Mutation pour vérifier un code de réinitialisation
   @Mutation(() => String)
-async verifyCode(
-    @Args('identifier') identifier: string, // Can be email or phone
-    @Args('code') code: string
-) {
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+  async verifyCode(
+      @Args('identifier') identifier: string, // Can be email or phone
+      @Args('code') code: string
+  ) {
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
-    const resetToken = await this.authService.verifyCode(identifier, code);
-    if (!resetToken) {
-        throw new BadRequestException('Invalid or expired OTP code.');
-    }
+      const resetToken = await this.authService.verifyCode(identifier, code);
+      if (!resetToken) {
+          throw new BadRequestException('Invalid or expired OTP code.');
+      }
 
-    return 'Code verified successfully!';
-}
-
-
-  // Mutation pour réinitialiser le mot de passe
+      return 'Code verified successfully!';
+  }
 
   // Query pour valider un utilisateur 
   @Query(() => User)
@@ -351,6 +367,7 @@ async verifyCode(
     const userId = context.req.user.userId;
     return this.authService.logoutAllDevices(userId);
   }
+
   @Mutation(() => Boolean)
   @UseGuards(AuthenticationGuard)
   async revokeSession(
@@ -361,11 +378,3 @@ async verifyCode(
     return this.authService.revokeSession(userId, sessionId);
   }
 }
-  @Mutation(() => String)
-async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
-  await this.authService.forgotPassword(phoneNumber);
-  return 'Password reset OTP sent via SMS';
-}
-
-}
-

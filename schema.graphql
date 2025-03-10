@@ -85,6 +85,9 @@ type User {
 
   """Numéro de téléphone de l'utilisateur"""
   phoneNumber: String
+
+  """ID des préférences de l'utilisateur"""
+  preferences: ID
 }
 
 """
@@ -130,12 +133,63 @@ type Session {
   lastActive: String!
 }
 
+type UserPreferences {
+  _id: ID!
+
+  """User ID associated with these preferences"""
+  userId: ID!
+
+  """Preferred land types"""
+  preferredLandTypes: [LandType!]!
+
+  """Minimum price range"""
+  minPrice: Float!
+
+  """Maximum price range"""
+  maxPrice: Float!
+
+  """Preferred locations"""
+  preferredLocations: [String!]!
+
+  """Maximum distance in kilometers"""
+  maxDistanceKm: Float!
+
+  """Whether notifications are enabled"""
+  notificationsEnabled: Boolean!
+
+  """Last update timestamp"""
+  lastUpdated: DateTime!
+
+  """Created date"""
+  createdAt: DateTime!
+
+  """Updated date"""
+  updatedAt: DateTime!
+}
+
+"""Types of land properties"""
+enum LandType {
+  AGRICULTURAL
+  RESIDENTIAL
+  INDUSTRIAL
+  COMMERCIAL
+}
+
+type HealthCheck {
+  status: String!
+  service: String!
+  timestamp: String!
+}
+
 type Query {
   validateUser(userId: String!): User!
   getActiveSessions: [Session!]!
+  getUserPreferences: UserPreferences
+  getAvailableLandTypes: [String!]!
   roles: [Role!]!
   role(name: String!): Role!
   getRolePermissions(name: String!): [Permission!]!
+  healthCheck: HealthCheck!
 }
 
 type Mutation {
@@ -145,6 +199,7 @@ type Mutation {
   changePassword(changePasswordData: ChangePasswordInput!): String!
   resetPassword(resetPasswordData: ResetPasswordInput!): User!
   forgotPassword(email: String!): String!
+  forgotPasswordSms(phoneNumber: String!): String!
   requestReset(email: String!): String!
   verifyCode(identifier: String!, code: String!): String!
   enableTwoFactorAuth: String!
@@ -153,11 +208,10 @@ type Mutation {
   logout: Boolean!
   logoutAllDevices: Boolean!
   revokeSession(sessionId: String!): Boolean!
+  updateUserPreferences(preferences: UserPreferencesInput!): UserPreferences!
   createRole(createRoleInput: CreateRoleInput!): Role!
   updateRole(updateRoleInput: UpdateRoleInput!): Role!
   deleteRole(name: String!): Boolean!
-  forgotPasswordSms(phoneNumber: String!): String!
-  create(input: CreateRoleDtoInput!): RoleType!
 }
 
 input UserInput {
@@ -172,9 +226,10 @@ input UserInput {
 
   """Rôle de l'utilisateur (par exemple, 'user', 'admin')"""
   role: String
+  phoneNumber: String
 
   """Clé publique de la wallet de l'utilisateur"""
-  phoneNumber: String
+  publicKey: String
 
   """Secret pour l'authentification à deux facteurs"""
   twoFactorSecret: String
@@ -204,6 +259,26 @@ input ChangePasswordInput {
 input ResetPasswordInput {
   token: String!
   newPassword: String!
+}
+
+input UserPreferencesInput {
+  """Preferred land types"""
+  preferredLandTypes: [String!]!
+
+  """Minimum price range"""
+  minPrice: Float! = 0
+
+  """Maximum price range"""
+  maxPrice: Float! = 1000000
+
+  """Preferred locations"""
+  preferredLocations: [String!]! = []
+
+  """Maximum distance in kilometers"""
+  maxDistanceKm: Float! = 50
+
+  """Whether notifications are enabled"""
+  notificationsEnabled: Boolean! = true
 }
 
 input CreateRoleInput {

@@ -14,6 +14,8 @@ import { SERVICES } from 'src/constants/service';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { RedisCacheModule } from 'src/redis/redis-cache.module';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
+import { TwilioService } from 'src/services/twilio.service';
+import { SessionConfig } from 'src/config/session';
 
 @Global()
 @Module({
@@ -21,8 +23,10 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '10h' },
+        secret: config.get<string>('jwt.secret'),
+        signOptions: { 
+          expiresIn: config.get<string>('jwt.expiration', '10h') 
+        },
       }),
     }),
     MongooseModule.forFeature([
@@ -40,20 +44,19 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
             host: configService.get('LAND_HOST', 'land'),
             port: configService.get('LAND_PORT', 3003),
             timeout: 5000,
-            retryAttempts: 3,
-            retryDelay: 1000,
+            retryAttempts: SessionConfig.RETRY_ATTEMPTS || 3,
+            retryDelay: SessionConfig.RETRY_DELAY || 1000,
           },
         }),
         inject: [ConfigService],
       },
-
     ]),
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const host = configService.get<string>('REDIS_HOST');
-        const port = configService.get<number>('REDIS_PORT');
+        const host = configService.get<string>('redis.host', 'localhost');
+        const port = configService.get<number>('redis.port', 6379);
 
         console.log('Redis Configuration:', { host, port });
 
@@ -61,14 +64,14 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
           type: 'single',
           name: 'default',
           config: {
-            host: host || '127.0.0.1',
-            port: port || 6379,
+            host,
+            port,
             retryStrategy: (times: number) => {
               console.log(`Attempting to reconnect to Redis (attempt ${times})`);
-              return Math.min(times * 1000, 5000);
+              return Math.min(times * SessionConfig.RETRY_DELAY, 5000);
             },
             enableReadyCheck: true,
-            maxRetriesPerRequest: 3,
+            maxRetriesPerRequest: SessionConfig.RETRY_ATTEMPTS,
             onError: (err) => {
               console.error('Redis Error:', err);
             },
@@ -76,10 +79,10 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
         };
       },
     }),
-
   ],
   providers: [
     MailService,
+    TwilioService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
@@ -89,11 +92,11 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
     MongooseModule,
     ClientsModule,
     MailService,
+    TwilioService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
     RedisModule,
-
   ]
 })
-export class CoreModule { }
+export class CoreModule {}

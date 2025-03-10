@@ -14,21 +14,36 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
 @Module({
   imports: [
     CoreModule,
-    forwardRef(() => AuthenticationModule)
+    forwardRef(() => AuthenticationModule),
+    ClientsModule.registerAsync([
+      {
+        name: SERVICES.LAND,
+        imports: [ConfigModule],
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get('LAND_HOST', 'land'),
+            port: configService.get('LAND_PORT', 3003),
+            timeout: 5000,
+            retryAttempts: 3,
+            retryDelay: 1000,
+          },
+        }),
+        inject: [ConfigService],
+      }
+    ]),
   ],
   providers: [
     AuthenticationGuard,
     AuthorizationGuard,
     MicroserviceAuthGuard,
-    
-    
+    SessionGuard,
   ],
   exports: [
     AuthenticationGuard,
     AuthorizationGuard,
     MicroserviceAuthGuard,
-    
-    
+    SessionGuard,
   ]
 })
 export class GuardsModule {}

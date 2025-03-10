@@ -48,45 +48,70 @@ export class UserPreferencesService {
     this.logger.log(`Upserting preferences for user ${userId}`);
     
     try {
-      const preferences = await this.preferencesModel.findOneAndUpdate(
-        { userId: new Types.ObjectId(userId) },
-        {
-          userId: new Types.ObjectId(userId),
-          preferredLandTypes: preferencesData.preferredLandTypes,
-          minPrice: preferencesData.minPrice,
-          maxPrice: preferencesData.maxPrice,
-          preferredLocations: preferencesData.preferredLocations,
-          maxDistanceKm: preferencesData.maxDistanceKm,
-          notificationsEnabled: preferencesData.notificationsEnabled,
-          lastUpdated: new Date()
-        },
-        { new: true, upsert: true }
-      );
-
+      // Ensure we have a valid ObjectId for the user
+      const userObjectId = new Types.ObjectId(userId);
+      
+      // Create a new preferences object with an explicit ID
+      const preferences = new this.preferencesModel({
+        _id: new Types.ObjectId(), // Explicitly create an ID
+        userId: userObjectId,
+        preferredLandTypes: preferencesData.preferredLandTypes,
+        minPrice: preferencesData.minPrice,
+        maxPrice: preferencesData.maxPrice,
+        preferredLocations: preferencesData.preferredLocations,
+        maxDistanceKm: preferencesData.maxDistanceKm,
+        notificationsEnabled: preferencesData.notificationsEnabled,
+        lastUpdated: new Date()
+      });
+  
+      // Try to find existing preferences first
+      const existingPrefs = await this.preferencesModel.findOne({ userId: userObjectId });
+  
+      let savedPreferences;
+      if (existingPrefs) {
+        // Update existing preferences
+        existingPrefs.preferredLandTypes = preferencesData.preferredLandTypes;
+        existingPrefs.minPrice = preferencesData.minPrice;
+        existingPrefs.maxPrice = preferencesData.maxPrice;
+        existingPrefs.preferredLocations = preferencesData.preferredLocations;
+        existingPrefs.maxDistanceKm = preferencesData.maxDistanceKm;
+        existingPrefs.notificationsEnabled = preferencesData.notificationsEnabled;
+        existingPrefs.lastUpdated = new Date();
+        
+        savedPreferences = await existingPrefs.save();
+      } else {
+        // Save new preferences
+        savedPreferences = await preferences.save();
+      }
+  
       // Update the user document to reference these preferences
       await this.userModel.findByIdAndUpdate(
         userId,
-        { preferences: preferences._id },
+        { preferences: savedPreferences._id },
         { new: true }
       );
-
+  
       // Invalidate both user and preferences cache
       await this.redisCacheService.del(`user_preferences:${userId}`);
       const user = await this.userModel.findById(userId);
       if (user) {
         await this.redisCacheService.invalidateUser(userId, user.email);
       }
-
+  
       // Cache the new preferences
-      await this.redisCacheService.set(
-        `user_preferences:${userId}`,
-        preferences,
-        3600 // Cache for 1 hour
-      );
-
-      return preferences;
+      try {
+        await this.redisCacheService.set(
+          `user_preferences:${userId}`,
+          savedPreferences,
+          3600 // Cache for 1 hour
+        );
+      } catch (cacheError) {
+        this.logger.warn(`Failed to cache preferences, but proceeding: ${cacheError.message}`);
+      }
+  
+      return savedPreferences;
     } catch (error) {
-      this.logger.error(`Error upserting preferences for user ${userId}: ${error.message}`);
+      this.logger.error(`Error upserting preferences for user ${userId}: ${error.message}`, error.stack);
       throw error;
     }
   }

@@ -35,7 +35,6 @@ function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
 }
 
-
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
@@ -49,12 +48,13 @@ export class AuthenticationService {
     private jwtService: JwtService,
     private mailService: MailService,
     @Inject(forwardRef(() => RolesService))
-    private twilioService: TwilioService,
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
     private readonly redisCacheService: RedisCacheService,
-    private readonly tokenService: TokenService
+    private readonly tokenService: TokenService,
+    private readonly twilioService: TwilioService
   ) { }
+  
   /**
   * Méthode utilitaire pour trouver un utilisateur
   */
@@ -104,13 +104,13 @@ export class AuthenticationService {
   */
   async signup(signupData: UserInput) {
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-
+  
     // Vérifier si l'email existe déjà
     const existingUser = await this.findUser(email, 'email');
     if (existingUser) {
       throw new BadRequestException('Email already in use');
     }
-
+  
     // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
     if (phoneNumber) {
       const phoneInUse = await this.UserModel.findOne({ phoneNumber });
@@ -118,28 +118,35 @@ export class AuthenticationService {
         throw new BadRequestException('Phone number already in use');
       }
     }
-
+  
     // Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Créer l'utilisateur avec les champs fournis
-    const newUser = await this.UserModel.create({
-      username,
-      email,
-      password: hashedPassword,
-      publicKey: publicKey || null,
-      twoFactorSecret: twoFactorSecret || null,
-      role: role || UserRole.USER,
-      isVerified: isVerified || false,
-      phoneNumber: phoneNumber || null, // ✅ Add phoneNumber here!
-    });
-
-    // Mettre le nouvel utilisateur en cache
-    await this.redisCacheService.setUser(newUser);
-
-    return newUser;
-}
-
+  
+    try {
+      // Create with explicit ID assignment
+      const newUser = new this.UserModel({
+        _id: new Types.ObjectId(), // Explicitly create an ID
+        username,
+        email,
+        password: hashedPassword,
+        publicKey: publicKey || null,
+        twoFactorSecret: twoFactorSecret || null,
+        role: role || UserRole.USER,
+        isVerified: isVerified || false,
+        phoneNumber: phoneNumber || null,
+      });
+      
+      await newUser.save();
+      
+      // Mettre le nouvel utilisateur en cache
+      await this.redisCacheService.setUser(newUser);
+  
+      return newUser;
+    } catch (error) {
+      this.logger.error(`Error creating user: ${error.message}`, error.stack);
+      throw new Error(`Failed to create user: ${error.message}`);
+    }
+  }
 
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
@@ -238,7 +245,6 @@ export class AuthenticationService {
   * Méthode utilitaire pour changer le mot de passe de l'utilisateur
   */
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
-
     const user = await this.findUser(userId, 'id', true);
 
     // Compare the old password with the password in DB
@@ -269,20 +275,22 @@ export class AuthenticationService {
   async forgotPassword(identifier: string): Promise<void> {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
     let user;
+    
     if (isEmail) {
         user = await this.UserModel.findOne({ email: identifier });
     } else {
+        // Normalize phone number format if needed
         let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
         user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
     }
 
     if (!user) {
         this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
-        throw new Error('User not found');  // ✅ Throw error here
+        throw new NotFoundException('User not found');
     }
 
     const expiryDate = new Date();
-    expiryDate.setMinutes(expiryDate.getMinutes() + 15); 
+    expiryDate.setMinutes(expiryDate.getMinutes() + 15);
 
     let resetToken: string;
     if (isEmail) {
@@ -296,7 +304,7 @@ export class AuthenticationService {
         userId: user._id,
         expiryDate,
         email: user.email,
-        phoneNumber: identifier,
+        phoneNumber: isEmail ? null : identifier,
     });
 
     if (isEmail) {
@@ -308,13 +316,42 @@ export class AuthenticationService {
     }
 
     this.logger.log(`Password reset code sent to ${identifier}`);
-}
+  }
 
+  async forgotPasswordSms(phoneNumber: string): Promise<void> {
+    // Normalize phone number
+    const normalizedPhone = phoneNumber.startsWith('+216') ? phoneNumber : `+216${phoneNumber}`;
+    const user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
+  
+    if (!user) {
+      this.logger.warn(`User with phone number ${normalizedPhone} not found`);
+      throw new NotFoundException('User with this phone number not found');
+    }
+  
+    const otp = generateOtp();
+    const expiryDate = new Date();
+    expiryDate.setMinutes(expiryDate.getMinutes() + 15); // OTP valid for 15 mins
+  
+    await this.ResetTokenModel.create({
+      token: otp,
+      userId: user._id,
+      expiryDate,
+      email: user.email,
+      phoneNumber: normalizedPhone,
+    });
+  
+    await this.twilioService.sendSms(normalizedPhone, `Your OTP code is: ${otp}`);
+    this.logger.log(`Password reset OTP sent to ${normalizedPhone}`);
+  }
 
   async resetPasswordWithToken(token: string, newPassword: string): Promise<User> {
-    const resetToken = await this.ResetTokenModel.findOne({ token });
+    const resetToken = await this.ResetTokenModel.findOne({ 
+      token,
+      used: false,
+      expiryDate: { $gt: new Date() }
+    });
 
-    if (!resetToken || resetToken.expiryDate < new Date()) {
+    if (!resetToken) {
       throw new BadRequestException('Invalid or expired token');
     }
 
@@ -327,10 +364,39 @@ export class AuthenticationService {
     user.password = hashedPassword;
     await user.save();
 
+    // Mark token as used
     resetToken.used = true;
     await resetToken.save();
 
+    // Invalidate user cache
+    await this.redisCacheService.invalidateUser(user._id.toString(), user.email);
+
     return user;
+  }
+
+  async verifyCode(identifier: string, code: string): Promise<boolean> {
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+
+    const query = isEmail 
+        ? { email: identifier } 
+        : { phoneNumber: identifier };
+
+    const resetToken = await this.ResetTokenModel.findOne({
+        ...query,
+        token: code,
+        used: false,
+        expiryDate: { $gt: new Date() }
+    });
+
+    if (!resetToken) {
+        this.logger.warn(`Failed OTP verification for ${identifier}`);
+        return false;
+    }
+
+    resetToken.used = true;
+    await resetToken.save();
+
+    return true;
   }
 
   /**
@@ -377,12 +443,10 @@ export class AuthenticationService {
     isTwoFactorAuthenticated: boolean,
     deviceInfo: any
   ) {
-    const sessionId = uuidv4();
     const user = await this.findUser(userId.toString(), 'id');
 
     const payload = {
       userId: user._id,
-      sessionId,
       isTwoFactorAuthenticated
     };
 
@@ -394,7 +458,7 @@ export class AuthenticationService {
     const refreshToken = uuidv4();
 
     // Stocker la session
-    await this.tokenService.storeUserToken(user._id.toString(), {
+    const sessionId = await this.tokenService.storeUserToken(user._id.toString(), {
       accessToken,
       refreshToken,
       deviceInfo,
@@ -408,6 +472,7 @@ export class AuthenticationService {
       sessionId
     };
   }
+  
   async storeRefreshToken(token: string, userId: string | Types.ObjectId) {
     // Calculate expiry date 3 days from now
     const expiryDate = new Date();
@@ -464,92 +529,6 @@ export class AuthenticationService {
     };
   }
 
-  async verifyCode(identifier: string, code: string) {
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
-
-    const query = isEmail 
-        ? { email: identifier } 
-        : { phoneNumber: identifier };
-
-    const resetToken = await this.ResetTokenModel.findOne({
-        ...query,
-        token: code,
-        used: false,
-        expiryDate: { $gt: new Date() }
-    });
-
-    if (!resetToken) {
-        this.logger.warn(`Failed OTP verification for ${identifier}`);
-        throw new BadRequestException('Invalid or expired OTP code.');
-    }
-
-    resetToken.used = true;
-    await resetToken.save();
-
-    return 'Code verified successfully!';
-}
-
-
-async forgotPasswordSms(phoneNumber: string): Promise<void> {
-    const user = await this.UserModel.findOne({ phoneNumber });
-  
-    if (user) {
-      const otp = generateOtp();
-      const expiryDate = new Date();
-      expiryDate.setMinutes(expiryDate.getMinutes() + 15); // OTP valid for 10 mins
-  
-      await this.ResetTokenModel.create({
-        token: otp,
-        userId: user._id,
-        expiryDate,
-        email: user.email,
-        phoneNumber: phoneNumber,
-      });
-  
-      await this.twilioService.sendSms(phoneNumber, `Your OTP code is: ${otp}`);
-    } else {
-      this.logger.warn(`User with phone number ${phoneNumber} not found`);
-    }
-  }
-  
-}
-
-
-  async resetPassword(email: string, code: string, newPassword: string) {
-    const resetToken = await this.ResetTokenModel.findOne({
-      email: email,
-      token: code,
-      used: false,
-      expiryDate: { $gt: new Date() }
-    });
-
-    if (!resetToken) {
-      throw new BadRequestException('Code invalide ou expiré');
-    }
-
-    // Hasher le nouveau mot de passe
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Mettre à jour le mot de passe
-    await this.UserModel.findByIdAndUpdate(resetToken.userId, {
-      password: hashedPassword
-    });
-    //chercher user
-    const user = await this.findUser(email, 'email', true);
-
-    // Invalider le cache après changement de mot de passe
-    await this.redisCacheService.invalidateUser(user._id.toString(), email);
-    // Marquer le token comme utilisé
-    resetToken.used = true;
-    await resetToken.save();
-
-    return {
-      success: true,
-      message: 'Mot de passe réinitialisé avec succès',
-      user: user
-    };
-  }
-
   /**
   * Partie 2FA authentification
   */
@@ -589,6 +568,7 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
       throw error;
     }
   }
+  
   // Activer la 2FA pour un utilisateur  
   async enableTwoFactorAuth(userId: string): Promise<User> {
     const updatedUser = await this.UserModel.findByIdAndUpdate(
@@ -603,6 +583,7 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
 
     return updatedUser;
   }
+  
   async disableTwoFactorAuth(userId: string): Promise<User> {
     const updatedUser = await this.UserModel.findByIdAndUpdate(
       userId,
@@ -687,21 +668,9 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
     }
   }
 
-  // Dans le TokenService, ajoutez cette méthode si elle n'existe pas :
-  async getTempToken(userId: string) {
-    try {
-      const tempToken = await this.redisCacheService.get(`temp_token:${userId}`);
-      return tempToken;
-    } catch (error) {
-      this.logger.error(`Error getting temp token for user ${userId}:`, error);
-      return null;
-    }
-  }
-
-
   /**
-* Partie gestion des rôles pour les administrateurs
-*/
+  * Partie gestion des rôles pour les administrateurs
+  */
   async updateUserRole(userId: string, newRole: UserRole, adminId: string) {
     const admin = await this.findUser(adminId, 'id', true);
     if (admin.role !== UserRole.ADMIN) {
@@ -726,10 +695,12 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
 
     return updatedUser;
   }
+  
   async isAdmin(userId: string): Promise<boolean> {
     const user = await this.findUser(userId, 'id', false);
     return user?.role === UserRole.ADMIN;
   }
+  
   async getUserPermissions(userId: string) {
     const user = await this.findUser(userId, 'id', true);
 
@@ -748,8 +719,8 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
   }
 
   /**
- * Déconnexion d'une session spécifique
- */
+  * Déconnexion d'une session spécifique
+  */
   async logout(userId: string, sessionId: string): Promise<boolean> {
     try {
       // Suppression de la session
@@ -760,9 +731,10 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
       throw error;
     }
   }
+  
   /**
-* Déconnexion de toutes les sessions d'un utilisateur
-*/
+  * Déconnexion de toutes les sessions d'un utilisateur
+  */
   async logoutAllDevices(userId: string): Promise<boolean> {
     try {
       // Supprimer toutes les sessions de l'utilisateur
@@ -775,9 +747,10 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
       throw error;
     }
   }
+  
   /**
- * Révoquer une session spécifique
- */
+  * Révoquer une session spécifique
+  */
   async revokeSession(userId: string, sessionId: string): Promise<boolean> {
     try {
       // Vérifier si la session existe
@@ -796,26 +769,26 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
       throw error;
     }
   }
+  
   /**
-* Récupérer toutes les sessions actives d'un utilisateur
-*/
+  * Récupérer toutes les sessions actives d'un utilisateur
+  */
   async getActiveSessions(userId: string): Promise<Session[]> {
     try {
       const sessions = await this.tokenService.getAllSessions(userId);
       return sessions.map(session => ({
-        id: session.sessionId,
+        id: session.sessionId || 'unknown',
         deviceInfo: {
           userAgent: session.deviceInfo?.userAgent || 'Unknown',
           ip: session.deviceInfo?.ip || 'Unknown',
           device: session.deviceInfo?.device || 'Unknown'
         },
-        createdAt: session.loginTime || new Date().toISOString(),
-        lastActive: session.lastActive || session.loginTime || new Date().toISOString()
+        createdAt: session.loginTime?.toISOString() || new Date().toISOString(),
+        lastActive: session.lastActive?.toISOString() || session.loginTime?.toISOString() || new Date().toISOString()
       }));
     } catch (error) {
       this.logger.error(`Error getting active sessions for user ${userId}:`, error);
       throw error;
     }
   }
-
 }

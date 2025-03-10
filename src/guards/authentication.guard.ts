@@ -4,11 +4,12 @@ import {
   ExecutionContext,
   UnauthorizedException,
   Logger,
+  SetMetadata,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { GqlExecutionContext } from '@nestjs/graphql';
-
+import { Reflector } from '@nestjs/core';
 
 interface JWTPayload {
   userId: string;
@@ -17,12 +18,19 @@ interface JWTPayload {
   iat?: number;
   exp?: number;
 }
+export const ALLOW_WITHOUT_2FA_KEY = 'allowWithout2FA';
+
+// Add this decorator to allow certain routes to skip 2FA
+export const AllowWithout2FA = () => SetMetadata(ALLOW_WITHOUT_2FA_KEY, true);
 
 @Injectable()
 export class AuthenticationGuard implements CanActivate {
   private readonly logger = new Logger(AuthenticationGuard.name);
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly reflector: Reflector
+  ) {}
 
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
@@ -52,8 +60,14 @@ export class AuthenticationGuard implements CanActivate {
         secret: process.env.JWT_SECRET || 'secret key',
       });
 
+      // Check if this endpoint is allowed without 2FA
+      const skipTwoFactor = this.reflector.get(
+        ALLOW_WITHOUT_2FA_KEY,
+        context.getHandler()
+      );
+
       // Vérifier si l'utilisateur nécessite une 2FA
-      if (payload.isTwoFactorAuthenticated === false && request.path !== '/verify-2fa') {
+      if (payload.isTwoFactorAuthenticated === false && !skipTwoFactor) {
         this.logger.warn(`2FA required for user ${payload.userId}`);
         throw new UnauthorizedException('Authentification à deux facteurs requise');
       }

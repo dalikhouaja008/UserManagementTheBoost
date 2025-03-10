@@ -11,14 +11,13 @@ import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
 import { MailService } from './services/mail.service';
-
-
-
-
+import { TwilioService } from './services/twilio.service';
+import { RedisCacheModule } from './redis/redis-cache.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ //facilite l'utilisation des variables d'environnement
+    ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
       load: [config],
@@ -29,6 +28,17 @@ import { MailService } from './services/mail.service';
         TCP_PORT: Joi.number().required(),
         REDIS_HOST: Joi.string().required(),
         REDIS_PORT: Joi.number().required(),
+        
+        // Optional variables with default values
+        TWILIO_ACCOUNT_SID: Joi.string().optional(),
+        TWILIO_AUTH_TOKEN: Joi.string().optional(),
+        TWILIO_PHONE_NUMBER: Joi.string().optional(),
+        EMAIL_HOST: Joi.string().optional(),
+        EMAIL_PORT: Joi.number().optional(),
+        EMAIL_USER: Joi.string().optional(),
+        EMAIL_PASS: Joi.string().optional(),
+        EMAIL_FROM: Joi.string().optional(),
+        FRONTEND_URL: Joi.string().optional(),
       }),
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
@@ -48,9 +58,17 @@ import { MailService } from './services/mail.service';
     ScheduleModule.forRoot(),
     CoreModule,
     GuardsModule,
-    
+    RedisCacheModule,
+    HealthModule,
   ],
   
-  providers: [MailService],
+  providers: [
+    MailService,
+    TwilioService,
+  ],
+  exports: [
+    MailService,
+    TwilioService,
+  ]
 })
 export class AppModule {}

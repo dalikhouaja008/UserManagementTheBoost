@@ -2,8 +2,8 @@ import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common
 import { nanoid } from 'nanoid';
 import { SessionConfig } from 'src/config/session';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
-
-
+import { TokenData } from './interfaces/tempTokenData.interface';
+import { TempTokenData } from './interfaces/tempTokenData.interface';
 
 @Injectable()
 export class TokenService {
@@ -15,6 +15,7 @@ export class TokenService {
     private readonly FAILED_ATTEMPTS_TTL = 1800; // 30 minutes en secondes
     public readonly MAX_FAILED_ATTEMPTS = 5; // Nombre maximum de tentatives échouées
     private readonly USER_SESSIONS_PREFIX = 'user_sessions:';
+    
     constructor(private readonly redisCacheService: RedisCacheService) { }
 
     async storeUserToken(
@@ -23,34 +24,25 @@ export class TokenService {
     ): Promise<string> {
         try {
             const sessionId = `${Date.now()}_${nanoid(6)}`;
-            const sessionKey = `${this.SESSION_PREFIX}${sessionId}`;
-            const userTokenKey = `${this.TOKEN_PREFIX}${userId}`;
-
+            const sessionKey = `${this.SESSION_PREFIX}${userId}:${sessionId}`;
+            
             const sessionData: TokenData = {
                 ...tokenData,
-                lastActive: new Date()
+                lastActive: new Date(),
+                sessionId
             };
 
             // Stocker les détails de la session
             await this.redisCacheService.set(
                 sessionKey,
                 sessionData,
-                86400 // 24 heures
+                SessionConfig.SESSION_TTL || 86400 // 24 heures par défaut
             );
 
-            // Récupérer et mettre à jour la liste des sessions de l'utilisateur
-            const userSessions = await this.redisCacheService.get(userTokenKey) || {};
-            userSessions[sessionId] = {
-                accessToken: tokenData.accessToken,
-                deviceInfo: tokenData.deviceInfo,
-                loginTime: tokenData.loginTime
-            };
-
-            // Mettre à jour la liste des sessions
-            await this.redisCacheService.set(
-                userTokenKey,
-                userSessions,
-                604800 // 7 jours
+            // Ajouter l'ID de la session à l'ensemble des sessions de l'utilisateur
+            await this.redisCacheService.sadd(
+                `${this.USER_SESSIONS_PREFIX}${userId}`,
+                sessionId
             );
 
             return sessionId;
@@ -69,7 +61,8 @@ export class TokenService {
 
         await this.redisCacheService.set(key, data, 300); // 5 minutes
     }
-    async getTempToken(userId: string): Promise<any> {
+    
+    async getTempToken(userId: string): Promise<TempTokenData | null> {
         try {
             return await this.redisCacheService.get(
                 `${this.TEMP_TOKEN_PREFIX}${userId}`
@@ -89,20 +82,21 @@ export class TokenService {
         }
     }
 
-
     async validateToken(userId: string, token: string): Promise<boolean> {
         try {
-            const userTokenKey = `${this.TOKEN_PREFIX}${userId}`;
-            const userSessions = await this.redisCacheService.get(userTokenKey);
-
-            if (!userSessions) {
-                return false;
-            }
-
-            // Vérifier si le token existe dans une des sessions
-            return Object.values(userSessions).some(
-                (session: any) => session.accessToken === token
+            // Vérifier toutes les sessions de l'utilisateur
+            const sessionIds = await this.redisCacheService.smembers(
+                `${this.USER_SESSIONS_PREFIX}${userId}`
             );
+            
+            for (const sessionId of sessionIds) {
+                const session = await this.getSession(userId, sessionId);
+                if (session && session.accessToken === token) {
+                    return true;
+                }
+            }
+            
+            return false;
         } catch (error) {
             this.logger.error(`Error validating token for user ${userId}:`, error);
             return false;
@@ -110,18 +104,21 @@ export class TokenService {
     }
 
     async getUserSessions(userId: string) {
-        const key = `${this.TOKEN_PREFIX}${userId}`;
-        return await this.redisCacheService.get(key);
+        return this.getAllSessions(userId);
     }
 
     async updateSessionActivity(userId: string, sessionId: string): Promise<void> {
         try {
-            const sessionKey = `${this.SESSION_PREFIX}${sessionId}`;
+            const sessionKey = `${this.SESSION_PREFIX}${userId}:${sessionId}`;
             const session = await this.redisCacheService.get(sessionKey);
 
             if (session) {
                 session.lastActive = new Date();
-                await this.redisCacheService.set(sessionKey, session, 86400); // 24 heures
+                await this.redisCacheService.set(
+                    sessionKey, 
+                    session, 
+                    SessionConfig.SESSION_TTL || 86400
+                ); // 24 heures par défaut
             }
         } catch (error) {
             this.logger.error(`Error updating session activity for ${sessionId}:`, error);
@@ -129,110 +126,35 @@ export class TokenService {
     }
 
     async invalidateSession(userId: string, sessionId: string): Promise<void> {
-        try {
-            // Supprimer la session spécifique
-            const sessionKey = `${this.SESSION_PREFIX}${sessionId}`;
-            const userTokenKey = `${this.TOKEN_PREFIX}${userId}`;
-
-            await this.redisCacheService.del(sessionKey);
-
-            // Mettre à jour la liste des sessions
-            const userSessions = await this.redisCacheService.get(userTokenKey);
-            if (userSessions) {
-                delete userSessions[sessionId];
-                if (Object.keys(userSessions).length > 0) {
-                    await this.redisCacheService.set(userTokenKey, userSessions, 604800);
-                } else {
-                    await this.redisCacheService.del(userTokenKey);
-                }
-            }
-        } catch (error) {
-            this.logger.error(`Error invalidating session ${sessionId}:`, error);
-            throw new InternalServerErrorException('Failed to invalidate session');
-        }
+        await this.deleteSession(userId, sessionId);
     }
 
     async invalidateAllSessions(userId: string): Promise<void> {
-        try {
-            const userTokenKey = `${this.TOKEN_PREFIX}${userId}`;
-            const userSessions = await this.redisCacheService.get(userTokenKey);
-
-            if (userSessions) {
-                // Supprimer toutes les sessions
-                await Promise.all(
-                    Object.keys(userSessions).map(sessionId =>
-                        this.redisCacheService.del(`${this.SESSION_PREFIX}${sessionId}`)
-                    )
-                );
-
-                // Supprimer la liste des sessions
-                await this.redisCacheService.del(userTokenKey);
-            }
-        } catch (error) {
-            this.logger.error(`Error invalidating all sessions for user ${userId}:`, error);
-            throw new InternalServerErrorException('Failed to invalidate all sessions');
-        }
+        await this.deleteAllSessions(userId);
     }
 
-    async findSessionByRefreshToken(refreshToken: string) {
+    async findSessionByRefreshToken(refreshToken: string): Promise<{ userId: string, deviceInfo: any } | null> {
         try {
-            // Parcourir toutes les sessions pour trouver le refresh token
-            const allSessions = await this.redisCacheService.keys(`${this.TOKEN_PREFIX}*`);
-
-            for (const sessionKey of allSessions) {
-                const session = await this.redisCacheService.get(sessionKey);
+            const sessionIds = await this.redisCacheService.keys(`${this.SESSION_PREFIX}*`);
+            
+            for (const key of sessionIds) {
+                const session = await this.redisCacheService.get(key);
                 if (session && session.refreshToken === refreshToken) {
-                    return {
-                        userId: sessionKey.replace(this.TOKEN_PREFIX, ''),
-                        ...session
-                    };
+                    // Extraire l'userId du format "session:userId:sessionId"
+                    const parts = key.split(':');
+                    if (parts.length >= 2) {
+                        return {
+                            userId: parts[1],
+                            deviceInfo: session.deviceInfo
+                        };
+                    }
                 }
             }
-
+            
             return null;
         } catch (error) {
             this.logger.error('Error finding session by refresh token:', error);
             return null;
-        }
-    }
-
-    async storeUserTokenWithRefresh(
-        userId: string,
-        accessToken: string,
-        refreshToken: string,
-        deviceInfo: any
-    ) {
-        const sessionData = {
-            accessToken,
-            refreshToken,
-            deviceInfo,
-            loginTime: new Date(),
-            lastActive: new Date()
-        };
-
-        const sessionId = await this.storeUserToken(userId, sessionData);
-
-        // Stocker une référence inversée pour la recherche rapide par refresh token
-        await this.redisCacheService.set(
-            `refresh_token:${refreshToken}`,
-            { userId, sessionId },
-            259200 // 3 jours
-        );
-
-        return sessionId;
-    }
-
-    async invalidateRefreshToken(refreshToken: string) {
-        try {
-            const tokenData = await this.redisCacheService.get(`refresh_token:${refreshToken}`);
-            if (tokenData) {
-                await Promise.all([
-                    this.redisCacheService.del(`refresh_token:${refreshToken}`),
-                    this.invalidateSession(tokenData.userId, tokenData.sessionId)
-                ]);
-            }
-        } catch (error) {
-            this.logger.error('Error invalidating refresh token:', error);
         }
     }
 
@@ -250,7 +172,6 @@ export class TokenService {
 
             // Si le nombre maximum de tentatives est atteint
             if (newAttempts >= this.MAX_FAILED_ATTEMPTS) {
-                // Vous pouvez implémenter ici une logique de blocage temporaire
                 this.logger.warn(`User ${userId} has reached maximum failed 2FA attempts`);
             }
 
@@ -260,6 +181,7 @@ export class TokenService {
             throw error;
         }
     }
+    
     async resetFailedAttempts(userId: string): Promise<void> {
         try {
             await this.redisCacheService.del(`${this.FAILED_ATTEMPTS_PREFIX}${userId}`);
@@ -268,6 +190,7 @@ export class TokenService {
             throw error;
         }
     }
+    
     async getFailedAttempts(userId: string): Promise<number> {
         try {
             const attempts = await this.redisCacheService.get(
@@ -279,6 +202,7 @@ export class TokenService {
             return 0;
         }
     }
+    
     async isUserBlocked(userId: string): Promise<boolean> {
         try {
             const attempts = await this.getFailedAttempts(userId);
@@ -288,10 +212,8 @@ export class TokenService {
             return false;
         }
     }
-    /**
-   * Récupérer une session spécifique
-   */
-    async getSession(userId: string, sessionId: string): Promise<any> {
+    
+    async getSession(userId: string, sessionId: string): Promise<TokenData | null> {
         try {
             return await this.redisCacheService.get(
                 `${this.SESSION_PREFIX}${userId}:${sessionId}`
@@ -301,9 +223,7 @@ export class TokenService {
             return null;
         }
     }
-    /**
-* Supprimer une session spécifique
-*/
+    
     async deleteSession(userId: string, sessionId: string): Promise<void> {
         try {
             // Supprimer la session
@@ -311,7 +231,7 @@ export class TokenService {
                 `${this.SESSION_PREFIX}${userId}:${sessionId}`
             );
 
-            // Mettre à jour la liste des sessions de l'utilisateur
+            // Retirer l'ID de session de l'ensemble des sessions
             await this.redisCacheService.srem(
                 `${this.USER_SESSIONS_PREFIX}${userId}`,
                 sessionId
@@ -321,9 +241,7 @@ export class TokenService {
             throw error;
         }
     }
-    /**
-   * Supprimer toutes les sessions d'un utilisateur
-   */
+    
     async deleteAllSessions(userId: string): Promise<void> {
         try {
             // Récupérer tous les IDs de session
@@ -345,9 +263,7 @@ export class TokenService {
             throw error;
         }
     }
-    /**
-* Récupérer toutes les sessions actives d'un utilisateur
-*/
+    
     async getAllSessions(userId: string): Promise<any[]> {
         try {
             // Récupérer tous les IDs de session
@@ -356,9 +272,16 @@ export class TokenService {
             );
 
             // Récupérer les détails de chaque session
-            const sessionPromises = sessionIds.map(sessionId =>
-                this.getSession(userId, sessionId)
-            );
+            const sessionPromises = sessionIds.map(async sessionId => {
+                const session = await this.getSession(userId, sessionId);
+                if (session) {
+                    return {
+                        ...session,
+                        sessionId
+                    };
+                }
+                return null;
+            });
 
             const sessions = await Promise.all(sessionPromises);
 
@@ -370,10 +293,7 @@ export class TokenService {
         }
     }
 
-    /**
-     * Mettre à jour le timestamp de dernière activité d'une session
-     */
-    async updateSessionLastActive(userId: string, sessionId: string): Promise<void> {
+    async updateLastActive(userId: string, sessionId: string): Promise<void> {
         try {
             const session = await this.getSession(userId, sessionId);
             if (session) {
@@ -381,7 +301,7 @@ export class TokenService {
                 await this.redisCacheService.set(
                     `${this.SESSION_PREFIX}${userId}:${sessionId}`,
                     session,
-                    86400 // TTL de 24 heures
+                    SessionConfig.SESSION_TTL
                 );
             }
         } catch (error) {
@@ -389,42 +309,13 @@ export class TokenService {
         }
     }
 
-     // Révoquer une session spécifique
-  async revokeSession(userId: string, sessionId: string): Promise<void> {
-    // Supprimer la session spécifique
-    await this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`);
-    // Retirer l'ID de session de l'ensemble des sessions
-    await this.redisCacheService.srem(
-      `${this.USER_SESSIONS_PREFIX}${userId}`,
-      sessionId
-    );
-  }
-
-  // Révoquer toutes les sessions
-  async revokeAllSessions(userId: string): Promise<void> {
-    const sessionIds = await this.redisCacheService.smembers(
-      `${this.USER_SESSIONS_PREFIX}${userId}`
-    );
-
-    // Supprimer toutes les sessions individuelles
-    await Promise.all(
-      sessionIds.map(sessionId =>
-        this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`)
-      )
-    );
-
-    // Supprimer l'ensemble des sessions
-    await this.redisCacheService.del(`${this.USER_SESSIONS_PREFIX}${userId}`);
-  }
-  async updateLastActive(userId: string, sessionId: string): Promise<void> {
-    const session = await this.getSession(userId, sessionId);
-    if (session) {
-      session.lastActive = new Date();
-      await this.redisCacheService.set(
-        `${this.SESSION_PREFIX}${userId}:${sessionId}`,
-        session,
-        SessionConfig.SESSION_TTL
-      );
+    // Révoquer une session spécifique
+    async revokeSession(userId: string, sessionId: string): Promise<void> {
+        await this.deleteSession(userId, sessionId);
     }
-  }
+
+    // Révoquer toutes les sessions
+    async revokeAllSessions(userId: string): Promise<void> {
+        await this.deleteAllSessions(userId);
+    }
 }
