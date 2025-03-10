@@ -22,14 +22,9 @@
   },
   "dependencies": {
     "@apollo/server": "^4.11.3",
-<<<<<<< HEAD
-    "@nestjs-modules/mailer": "^2.0.2",
-    "@nestjs/apollo": "^13.0.3",
-=======
     "@nestjs-modules/ioredis": "^2.0.2",
     "@nestjs-modules/mailer": "^1.11.1",
     "@nestjs/apollo": "^13.0.2",
->>>>>>> c09d11afd1c1706073e2ccd3e475b9de63bf655f
     "@nestjs/common": "^11.0.7",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.7",

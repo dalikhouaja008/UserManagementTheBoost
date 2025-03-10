@@ -150,8 +150,6 @@ type Mutation {
   enableTwoFactorAuth: String!
   verifyTwoFactorAuth(token: String!): Boolean!
   verifyTwoFactorLogin(token: String!): LoginResponse!
-<<<<<<< HEAD
-=======
   logout: Boolean!
   logoutAllDevices: Boolean!
   revokeSession(sessionId: String!): Boolean!
@@ -159,7 +157,6 @@ type Mutation {
   updateRole(updateRoleInput: UpdateRoleInput!): Role!
   deleteRole(name: String!): Boolean!
   forgotPasswordSms(phoneNumber: String!): String!
->>>>>>> c09d11afd1c1706073e2ccd3e475b9de63bf655f
   create(input: CreateRoleDtoInput!): RoleType!
 }
 
