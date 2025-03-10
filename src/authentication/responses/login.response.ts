@@ -1,6 +1,7 @@
 import { ObjectType, Field } from '@nestjs/graphql';
 import { User } from '../schema/user.schema';
 import { DeviceInfo } from './deviceInfo.response';
+import { Permission } from 'src/roles/schemas/role.schema';
 
 
 @ObjectType()
@@ -24,4 +25,9 @@ export class LoginResponse {
 
   @Field(() => DeviceInfo, { nullable: true, description: "Informations sur l'appareil" })
   deviceInfo?: DeviceInfo;
+  @Field(() => [Permission], { 
+    nullable: true, 
+    description: "Liste des permissions associées au rôle de l'utilisateur" 
+  })
+  permissions?: Permission[];
 }

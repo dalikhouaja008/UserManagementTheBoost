@@ -100,11 +100,16 @@ export class RolesService {
     };
 
     for (const [roleName, roleData] of Object.entries(defaultRoles)) {
-      await this.roleModel.findOneAndUpdate(
-        { name: roleName },
-        { $setOnInsert: roleData },
-        { upsert: true, new: true }
-      );
+      try {
+        await this.roleModel.findOneAndUpdate(
+          { name: roleName },
+          { $setOnInsert: roleData },
+          { upsert: true, new: true }
+        );
+        console.log(`✅ Role ${roleName} initialized`);
+      } catch (error) {
+        console.error(`❌ Error initializing role ${roleName}:`, error);
+      }
     }
   }
 

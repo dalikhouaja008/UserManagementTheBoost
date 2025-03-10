@@ -1,7 +1,8 @@
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document,Types } from 'mongoose';
+import { Document, Types } from 'mongoose';
 import { UserRole } from 'src/roles/enums/roles.enum';
+import { Permission } from 'src/roles/schemas/role.schema';
 
 
 
@@ -9,7 +10,7 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 @ObjectType()
-export class User {
+export class User  extends Document {
   @Field(() => ID)
   _id: Types.ObjectId;
 
@@ -46,12 +47,16 @@ export class User {
   })
   publicKey?: string;
 
-  @Prop({ type: String, enum: UserRole, default: UserRole.USER }) 
-  @Field(() => String, {
-    description: "Rôle de l'utilisateur (par exemple, 'user', 'admin')",
-    nullable: true,
+  @Prop({
+    type: String,
+    enum: Object.values(UserRole),
+    set: (role: string) => role.toUpperCase(),
+    default: UserRole.USER
   })
-  role?: string;
+  role: string;
+
+  @Field(() => [Permission])
+  permissions?: Permission[];
 
   @Prop({ default: false })
   @Field(() => Boolean, {
@@ -65,6 +70,13 @@ export class User {
 
   @Field(() => Date, { description: 'Date de mise à jour du compte' })
   updatedAt: Date;
+
+  @Prop({ required: false, unique: true })
+  @Field(() => String, {
+    description: "Numéro de téléphone de l'utilisateur",
+    nullable: true,
+  })
+  phoneNumber?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

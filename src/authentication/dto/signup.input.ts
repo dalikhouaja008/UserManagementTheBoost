@@ -1,5 +1,5 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsEmail, IsString, IsOptional, IsBoolean, MinLength, IsNotEmpty } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsBoolean, MinLength, IsNotEmpty, IsPhoneNumber } from 'class-validator';
 
 @InputType()
 export class UserInput {
@@ -34,6 +34,11 @@ export class UserInput {
   @IsString()
   publicKey?: string;
 
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsPhoneNumber('TN') // Adjust for your region if needed
+  phoneNumber?: string;
+
   @Field(() => String, {
     description: "Secret pour l'authentification à deux facteurs",
     nullable: true,
@@ -49,4 +54,6 @@ export class UserInput {
   @IsOptional()
   @IsBoolean()
   isVerified?: boolean;
+
+
 }

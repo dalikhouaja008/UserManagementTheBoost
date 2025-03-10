@@ -34,6 +34,13 @@ export class User {
   })
   isTwoFactorEnabled: boolean;
 
+  @Prop({ required: false, unique: true, sparse: true }) // Add sparse to allow null values
+  @Field(() => String, {
+    description: "Numéro de téléphone de l'utilisateur",
+    nullable: true,
+  })
+  phoneNumber?: string;
+
   @Field(() => Date, { description: 'Date de création du compte' })
   createdAt: Date;
 

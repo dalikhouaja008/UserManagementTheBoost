@@ -40,10 +40,10 @@ import * as Joi from 'joi';
       }),
       inject: [ConfigService],
     }),
+    CoreModule,
     AuthenticationModule,
     RolesModule,
     ScheduleModule.forRoot(),
-    CoreModule,
     GuardsModule,
     
   ],

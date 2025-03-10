@@ -8,11 +8,14 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { RolesService } from 'src/roles/roles.service';
 
 
 interface JWTPayload {
   userId: string;
   email?: string;
+  role?: string;
+  permissions?: any[];
   isTwoFactorAuthenticated?: boolean;
   iat?: number;
   exp?: number;
@@ -22,7 +25,10 @@ interface JWTPayload {
 export class AuthenticationGuard implements CanActivate {
   private readonly logger = new Logger(AuthenticationGuard.name);
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly rolesService: RolesService
+  ) { }
 
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
@@ -58,8 +64,24 @@ export class AuthenticationGuard implements CanActivate {
         throw new UnauthorizedException('Authentification à deux facteurs requise');
       }
 
+      // Si les permissions ne sont pas dans le token, les récupérer du rôle
+      if (payload.role && (!payload.permissions || payload.permissions.length === 0)) {
+        try {
+          const userRole = await this.rolesService.findByName(payload.role);
+          payload.permissions = userRole.permissions;
+        } catch (error) {
+          this.logger.error(`Erreur lors de la récupération des permissions: ${error.message}`);
+        }
+      }
+
+      this.logger.debug(`User authenticated with role: ${payload.role}`);
+      this.logger.debug(`User permissions: ${JSON.stringify(payload.permissions)}`);
+
       // Ajouter le payload au request object
-      request.user = payload;
+      request.user = {
+        ...payload,
+        permissions: payload.permissions || []
+      };
       return true;
     } catch (error) {
       this.logger.error(`Erreur d'authentification: ${error.message}`, error.stack);
