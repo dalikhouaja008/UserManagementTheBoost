@@ -7,7 +7,7 @@ type Permission {
   actions: [Action!]!
 }
 
-"""Resources disponibles dans le service user-management"""
+"""Les ressources disponibles dans l'application"""
 enum Resource {
   USERS
   ROLES
@@ -21,7 +21,7 @@ enum Resource {
   DOCUMENTS
 }
 
-"""Actions disponibles dans l'application"""
+"""Les actions possibles sur les ressources"""
 enum Action {
   CREATE
   READ
@@ -119,9 +119,6 @@ type LoginResponse {
 
   """Informations sur l'appareil"""
   deviceInfo: DeviceInfo
-
-  """Liste des permissions associées au rôle de l'utilisateur"""
-  permissions: [Permission!]
 }
 
 type Session {

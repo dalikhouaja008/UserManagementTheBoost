@@ -1,8 +1,10 @@
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { IsEthereumAddress } from 'class-validator';
 import { Document, Types } from 'mongoose';
 import { UserRole } from 'src/roles/enums/roles.enum';
-import { Permission } from 'src/roles/schemas/role.schema';
+import { Permission } from 'src/roles/schemas/permission.schema';
+
 
 
 
@@ -45,6 +47,7 @@ export class User  extends Document {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
+  @IsEthereumAddress()
   publicKey?: string;
 
   @Prop({

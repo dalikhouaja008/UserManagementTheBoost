@@ -22,7 +22,7 @@ import { Model, Types } from 'mongoose';
 import { LoginInput } from './dto/login.input';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
 import { LoginResponse } from './responses/login.response';
-import { UserRole } from 'src/roles/enums/roles.enum';
+import { UserRole, isValidatorRole } from 'src/roles/enums/roles.enum';
 import { Resource } from 'src/roles/enums/resource.enum';
 import { Action } from 'src/roles/enums/action.enum';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
@@ -147,6 +147,83 @@ export class AuthenticationService {
     const timestamp = new Date().toISOString();
 
     try {
+      console.log(`[${timestamp}] 🔑 Login attempt for email: ${credentials.email}`);
+
+      const user = await this.findUser(credentials.email, 'email');
+      if (!user) {
+        throw new UnauthorizedException('Identifiants invalides');
+      }
+
+      const isPasswordValid = await bcrypt.compare(
+        credentials.password,
+        user.password
+      );
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Identifiants invalides');
+      }
+
+      // Utilisation de la fonction utilitaire
+      const isValidator = isValidatorRole(user.role);
+
+      if (user.isTwoFactorEnabled && !isValidator) {
+        console.log(`[${timestamp}] 🔐 2FA required for regular user: ${user.email}`);
+
+        const tempToken = this.jwtService.sign(
+          {
+            userId: user._id,
+            isTemp: true
+          },
+          {
+            expiresIn: '5m',
+            secret: process.env.JWT_SECRET
+          }
+        );
+
+        await this.tokenService.storeTempToken(user._id.toString(), {
+          token: tempToken,
+          deviceInfo: deviceInfo,
+          type: 'twoFactor',
+        });
+
+        return {
+          requiresTwoFactor: true,
+          tempToken,
+          accessToken: null,
+          refreshToken: null,
+          user: user,
+          deviceInfo,
+          sessionId: null
+        };
+      }
+
+      console.log(`[${timestamp}] 🔓 Direct access granted for ${isValidator ? 'validator' : 'user'}: ${user.email}`);
+      
+      const tokens = await this.generateUserTokens(
+        user._id,
+        false,
+        deviceInfo
+      );
+
+      return {
+        requiresTwoFactor: false,
+        tempToken: null,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user,
+        deviceInfo,
+        sessionId: tokens.sessionId
+      };
+
+    } catch (error) {
+      console.error(`[${timestamp}] ❌ Login failed:`, error.message);
+      throw error;
+    }
+  }
+  /*async login(credentials: LoginInput, deviceInfo: any): Promise<LoginResponse> {
+    const timestamp = new Date().toISOString();
+
+    try {
       console.log(`🔑 Login attempt for email: ${credentials.email}`);
 
       // 1. Vérifier l'utilisateur
@@ -233,7 +310,7 @@ export class AuthenticationService {
       this.logger.error(`[${timestamp}] ❌ Login failed: ${error.message}`);
       throw error;
     }
-  }
+  }*/
   /**
   * Méthode utilitaire pour changer le mot de passe de l'utilisateur
   */

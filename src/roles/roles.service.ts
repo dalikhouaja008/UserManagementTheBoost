@@ -6,7 +6,8 @@ import { CreateRoleDtoInput } from './dtos/role.dto';
 import { Resource } from './enums/resource.enum';
 import { Action } from './enums/action.enum';
 import { UserRole } from './enums/roles.enum';
-import { Permission, Role } from './schemas/role.schema';
+import {  Role } from './schemas/role.schema';
+import { Permission } from './schemas/permission.schema';
 
 @Injectable()
 export class RolesService {
