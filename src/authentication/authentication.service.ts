@@ -418,10 +418,12 @@ export class AuthenticationService {
 
     const payload = {
       userId: user._id,
-      sessionId,
-      isTwoFactorAuthenticated,
+      email: user.email,
+      ethAddress: user.publicKey, 
       role: user.role,
-      permissions // Utiliser les permissions du rôle
+      permissions: await this.rolesService.getRolePermissions(user.role),
+      sessionId,
+      isTwoFactorAuthenticated
     };
 
     const accessToken = this.jwtService.sign(payload, {

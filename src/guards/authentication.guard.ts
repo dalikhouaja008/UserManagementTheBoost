@@ -14,6 +14,7 @@ import { RolesService } from 'src/roles/roles.service';
 interface JWTPayload {
   userId: string;
   email?: string;
+  ethAddress?: string;  // Ajouter l'adresse Ethereum
   role?: string;
   permissions?: any[];
   isTwoFactorAuthenticated?: boolean;
