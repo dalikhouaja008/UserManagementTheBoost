@@ -141,10 +141,10 @@ type Mutation {
   createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
   changePassword(changePasswordData: ChangePasswordInput!): String!
-  forgotPassword(forgotPasswordData: ForgotPasswordInput!): String!
-  requestReset(email: String!): String!
-  verifyCode(email: String!, code: String!): String!
   resetPassword(resetPasswordData: ResetPasswordInput!): User!
+  forgotPassword(email: String!): String!
+  requestReset(email: String!): String!
+  verifyCode(identifier: String!, code: String!): String!
   enableTwoFactorAuth: String!
   verifyTwoFactorAuth(token: String!): Boolean!
   verifyTwoFactorLogin(token: String!): LoginResponse!
@@ -154,6 +154,8 @@ type Mutation {
   createRole(createRoleInput: CreateRoleInput!): Role!
   updateRole(updateRoleInput: UpdateRoleInput!): Role!
   deleteRole(name: String!): Boolean!
+  forgotPasswordSms(phoneNumber: String!): String!
+  create(input: CreateRoleDtoInput!): RoleType!
 }
 
 input UserInput {
@@ -170,7 +172,9 @@ input UserInput {
   role: String
 
   """Clé publique de la wallet de l'utilisateur"""
+
   publicKey: String
+
   phoneNumber: String
 
   """Secret pour l'authentification à deux facteurs"""
@@ -198,13 +202,8 @@ input ChangePasswordInput {
   newPassword: String!
 }
 
-input ForgotPasswordInput {
-  email: String!
-}
-
 input ResetPasswordInput {
-  email: String!
-  code: String!
+  token: String!
   newPassword: String!
 }
 

@@ -76,10 +76,12 @@ export class User  extends Document {
 
   @Prop({ required: false, unique: true })
   @Field(() => String, {
+
     description: "Numéro de téléphone de l'utilisateur",
     nullable: true,
   })
   phoneNumber?: string;
+
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

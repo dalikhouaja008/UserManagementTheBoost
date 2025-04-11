@@ -10,7 +10,7 @@ on:
      - 'docs/**'
      - '.gitignore'
      - 'LICENSE'
-
+     
 jobs:
   all-tasks:
     name: Build, Test, and Lint

@@ -3,9 +3,9 @@ import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput } from './dto/login.input';
 import { RefreshTokenInput } from './dto/refreshToken.input';
 import { ChangePasswordInput } from './dto/changePassword.input';
-import { ForgotPasswordInput } from './dto/forgetPassword.input';
 import { ResetPasswordInput } from './dto/resetPassword.input';
 import { AuthenticationService } from './authentication.service';
+
 import { UserInput } from './dto/signup.input';
 import { AuthenticationGuard } from 'src/guards/authentication.guard';
 import { User } from './schema/user.schema';
@@ -28,7 +28,7 @@ export class AuthenticationResolver {
     private readonly jwtService: JwtService,
     private readonly tokenService: TokenService
   ) { }
-
+  
 
   @Mutation(() => User)
   async signUp(@Args('signupData') signupData: UserInput) {
@@ -90,11 +90,22 @@ export class AuthenticationResolver {
     );
   }
 
-  // Mutation pour demander une réinitialisation de mot de passe
-  @Mutation(() => String)
-  async forgotPassword(@Args('forgotPasswordData') forgotPasswordData: ForgotPasswordInput) {
-    return this.authService.forgotPassword(forgotPasswordData.email);
+  @Mutation(() => User)
+  async resetPassword(@Args('resetPasswordData') resetPasswordData: ResetPasswordInput): Promise<User> {
+    return this.authService.resetPasswordWithToken(resetPasswordData.token, resetPasswordData.newPassword);
   }
+
+  @Mutation(() => String)
+  async forgotPassword(@Args('email') email: string): Promise<string> {
+    try {
+      await this.authService.forgotPassword(email);
+      return 'Password reset email sent';
+    } catch (error) {
+      throw new Error(error.message); // ✅ Throw GraphQL error if user not found
+    }
+  }
+  
+
 
   // Mutation pour demander un code de réinitialisation
   @Mutation(() => String)
@@ -104,19 +115,22 @@ export class AuthenticationResolver {
 
   // Mutation pour vérifier un code de réinitialisation
   @Mutation(() => String)
-  async verifyCode(@Args('email') email: string, @Args('code') code: string) {
-    return this.authService.verifyCode(email, code);
-  }
+async verifyCode(
+    @Args('identifier') identifier: string, // Can be email or phone
+    @Args('code') code: string
+) {
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+
+    const resetToken = await this.authService.verifyCode(identifier, code);
+    if (!resetToken) {
+        throw new BadRequestException('Invalid or expired OTP code.');
+    }
+
+    return 'Code verified successfully!';
+}
+
 
   // Mutation pour réinitialiser le mot de passe
-  @Mutation(() => User)
-  async resetPassword(@Args('resetPasswordData') resetPasswordData: ResetPasswordInput) {
-    return this.authService.resetPassword(
-      resetPasswordData.email,
-      resetPasswordData.code,
-      resetPasswordData.newPassword,
-    );
-  }
 
   // Query pour valider un utilisateur 
   @Query(() => User)
@@ -337,7 +351,6 @@ export class AuthenticationResolver {
     const userId = context.req.user.userId;
     return this.authService.logoutAllDevices(userId);
   }
-
   @Mutation(() => Boolean)
   @UseGuards(AuthenticationGuard)
   async revokeSession(
@@ -348,3 +361,11 @@ export class AuthenticationResolver {
     return this.authService.revokeSession(userId, sessionId);
   }
 }
+  @Mutation(() => String)
+async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
+  await this.authService.forgotPassword(phoneNumber);
+  return 'Password reset OTP sent via SMS';
+}
+
+}
+

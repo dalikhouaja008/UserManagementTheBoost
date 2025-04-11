@@ -38,6 +38,7 @@ export class ResetToken extends Document {
   @Field(() => String, { description: "Phone number associated with the reset token", nullable: true })
   phoneNumber?: string;
 
+
 }
 
 export const ResetTokenSchema = SchemaFactory.createForClass(ResetToken);

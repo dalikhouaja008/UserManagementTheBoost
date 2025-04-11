@@ -10,6 +10,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
+import { MailService } from './services/mail.service';
+
+
 
 
 
@@ -47,5 +50,7 @@ import * as Joi from 'joi';
     GuardsModule,
     
   ],
+  
+  providers: [MailService],
 })
 export class AppModule {}

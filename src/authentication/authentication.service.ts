@@ -28,6 +28,13 @@ import { Action } from 'src/roles/enums/action.enum';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
+import * as crypto from 'crypto';
+import { TwilioService } from 'src/services/twilio.service';
+
+function generateOtp(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
+}
+
 
 @Injectable()
 export class AuthenticationService {
@@ -42,6 +49,7 @@ export class AuthenticationService {
     private jwtService: JwtService,
     private mailService: MailService,
     @Inject(forwardRef(() => RolesService))
+    private twilioService: TwilioService,
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
     private readonly redisCacheService: RedisCacheService,
@@ -95,12 +103,22 @@ export class AuthenticationService {
   * Méthode utilitaire pour enregistrer un nouvel utilisateur
   */
   async signup(signupData: UserInput) {
-    const { email, username, password, publicKey, phoneNumber, twoFactorSecret, role, isVerified } = signupData;
+
+    const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
+
 
     // Vérifier si l'email existe déjà
     const existingUser = await this.findUser(email, 'email');
     if (existingUser) {
       throw new BadRequestException('Email already in use');
+    }
+
+    // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
+    if (phoneNumber) {
+      const phoneInUse = await this.UserModel.findOne({ phoneNumber });
+      if (phoneInUse) {
+        throw new BadRequestException('Phone number already in use');
+      }
     }
 
     // Hasher le mot de passe
@@ -111,18 +129,21 @@ export class AuthenticationService {
       username,
       email,
       password: hashedPassword,
+
       publicKey: publicKey || null, // Optionnel
       twoFactorSecret: twoFactorSecret || null, // Optionnel
       role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
       isVerified: isVerified || false,
       phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
+
     });
 
     // Mettre le nouvel utilisateur en cache
     await this.redisCacheService.setUser(newUser);
 
     return newUser;
-  }
+}
+
 
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
@@ -343,32 +364,77 @@ export class AuthenticationService {
     return updatedUser;
   }
 
-  async forgotPassword(email: string) {
-    //Check that user exists
-    const user = await this.findUser(email, 'email');
+  async forgotPassword(identifier: string): Promise<void> {
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+    let user;
+    if (isEmail) {
+        user = await this.UserModel.findOne({ email: identifier });
+    } else {
+        let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
+        user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
+    }
 
-    if (user) {
-      //If user exists, generate password reset link
-      const expiryDate = new Date();
-      expiryDate.setHours(expiryDate.getHours() + 1);
+    if (!user) {
+        this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
+        throw new Error('User not found');  // ✅ Throw error here
+    }
 
-      const resetToken = nanoid(64);
-      await this.ResetTokenModel.create({
+    const expiryDate = new Date();
+    expiryDate.setMinutes(expiryDate.getMinutes() + 15); 
+
+    let resetToken: string;
+    if (isEmail) {
+        resetToken = nanoid(64);
+    } else {
+        resetToken = generateOtp();
+    }
+
+    await this.ResetTokenModel.create({
         token: resetToken,
         userId: user._id,
         expiryDate,
-        email: email
-      });
-      //Send the link to the user by email
-      this.mailService.sendPasswordResetEmail(email, resetToken);
+        email: user.email,
+        phoneNumber: identifier,
+    });
+
+    if (isEmail) {
+        this.logger.log(`Sending password reset email to ${identifier}`);
+        await this.mailService.sendPasswordResetEmail(identifier, resetToken);
+    } else {
+        this.logger.log(`Sending password reset SMS to ${identifier}`);
+        await this.twilioService.sendSms(identifier, `Your OTP code is: ${resetToken}`);
     }
 
-    return { message: 'If this user exists, they will receive an email' };
+    this.logger.log(`Password reset code sent to ${identifier}`);
+}
+
+
+  async resetPasswordWithToken(token: string, newPassword: string): Promise<User> {
+    const resetToken = await this.ResetTokenModel.findOne({ token });
+
+    if (!resetToken || resetToken.expiryDate < new Date()) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
+    const user = await this.UserModel.findById(resetToken.userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    resetToken.used = true;
+    await resetToken.save();
+
+    return user;
   }
 
   /**
   * Partie gestion des tokens
   */
+
   async refreshTokens(refreshToken: string) {
     // Vérifier d'abord dans Redis
     const sessions = await this.tokenService.findSessionByRefreshToken(refreshToken);
@@ -509,23 +575,56 @@ export class AuthenticationService {
     };
   }
 
-  async verifyCode(email: string, code: string) {
+  async verifyCode(identifier: string, code: string) {
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+
+    const query = isEmail 
+        ? { email: identifier } 
+        : { phoneNumber: identifier };
+
     const resetToken = await this.ResetTokenModel.findOne({
-      email: email,
-      token: code,
-      used: false,
-      expiryDate: { $gt: new Date() }
+        ...query,
+        token: code,
+        used: false,
+        expiryDate: { $gt: new Date() }
     });
 
     if (!resetToken) {
-      throw new BadRequestException('Code invalide ou expiré');
+        this.logger.warn(`Failed OTP verification for ${identifier}`);
+        throw new BadRequestException('Invalid or expired OTP code.');
     }
 
-    return {
-      success: true,
-      message: 'Code vérifié avec succès'
-    };
+    resetToken.used = true;
+    await resetToken.save();
+
+    return 'Code verified successfully!';
+}
+
+
+async forgotPasswordSms(phoneNumber: string): Promise<void> {
+    const user = await this.UserModel.findOne({ phoneNumber });
+  
+    if (user) {
+      const otp = generateOtp();
+      const expiryDate = new Date();
+      expiryDate.setMinutes(expiryDate.getMinutes() + 15); // OTP valid for 10 mins
+  
+      await this.ResetTokenModel.create({
+        token: otp,
+        userId: user._id,
+        expiryDate,
+        email: user.email,
+        phoneNumber: phoneNumber,
+      });
+  
+      await this.twilioService.sendSms(phoneNumber, `Your OTP code is: ${otp}`);
+    } else {
+      this.logger.warn(`User with phone number ${phoneNumber} not found`);
+    }
   }
+  
+}
+
 
   async resetPassword(email: string, code: string, newPassword: string) {
     const resetToken = await this.ResetTokenModel.findOne({
@@ -698,12 +797,24 @@ export class AuthenticationService {
       throw error;
     }
   }
+
+
+  // Dans le TokenService, ajoutez cette méthode si elle n'existe pas :
+  async getTempToken(userId: string) {
+    try {
+      const tempToken = await this.redisCacheService.get(`temp_token:${userId}`);
+      return tempToken;
+    } catch (error) {
+      this.logger.error(`Error getting temp token for user ${userId}:`, error);
+      return null;
+    }
+  }
+
   /**
 * Partie gestion des rôles pour les administrateurs
 */
   async updateUserRole(userId: string, newRole: UserRole, adminId: string) {
     const admin = await this.findUser(adminId, 'id', true);
-
     if (admin.role !== UserRole.ADMIN) {
       throw new UnauthorizedException('Only administrators can change roles');
     }
