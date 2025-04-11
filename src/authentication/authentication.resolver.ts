@@ -360,7 +360,7 @@ async verifyCode(
     const userId = context.req.user.userId;
     return this.authService.revokeSession(userId, sessionId);
   }
-}
+
   @Mutation(() => String)
 async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
   await this.authService.forgotPassword(phoneNumber);
