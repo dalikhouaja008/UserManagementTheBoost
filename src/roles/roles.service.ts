@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
@@ -6,11 +6,12 @@ import { CreateRoleDtoInput } from './dtos/role.dto';
 import { Resource } from './enums/resource.enum';
 import { Action } from './enums/action.enum';
 import { UserRole } from './enums/roles.enum';
-import {  Role } from './schemas/role.schema';
-import { Permission } from './schemas/permission.schema';
+import { Permission, Role } from './schemas/role.schema';
 
 @Injectable()
 export class RolesService {
+  private readonly logger = new Logger(RolesService.name);
+
   constructor(
     @InjectModel(Role.name) private roleModel: Model<Role>
   ) { }
@@ -101,15 +102,17 @@ export class RolesService {
     };
 
     for (const [roleName, roleData] of Object.entries(defaultRoles)) {
-      try {
-        await this.roleModel.findOneAndUpdate(
-          { name: roleName },
-          { $setOnInsert: roleData },
-          { upsert: true, new: true }
-        );
-        console.log(`✅ Role ${roleName} initialized`);
-      } catch (error) {
-        console.error(`❌ Error initializing role ${roleName}:`, error);
+      this.logger.debug(`Initializing role: ${roleName} with permissions: ${JSON.stringify(roleData.permissions)}`);
+      const result = await this.roleModel.findOneAndUpdate(
+        { name: roleName },
+        { $setOnInsert: roleData },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      if (result) {
+        this.logger.debug(`Role ${roleName} initialized successfully.`);
+      } else {
+        this.logger.error(`Failed to initialize role ${roleName}.`);
       }
     }
   }

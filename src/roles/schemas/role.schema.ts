@@ -19,3 +19,5 @@ export class Role extends Document {
 
 export const RoleSchema = SchemaFactory.createForClass(Role);
 
+
+export { Permission };
