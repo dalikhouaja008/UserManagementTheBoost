@@ -42,11 +42,6 @@ export class UserInput {
   @IsString()
   publicKey?: string;
 
-  @Field(() => String, { nullable: true })
-  @IsOptional()
-  @IsPhoneNumber('TN') // Adjust for your region if needed
-  phoneNumber?: string;
-
   @Field(() => String, {
     description: "Secret pour l'authentification à deux facteurs",
     nullable: true,
