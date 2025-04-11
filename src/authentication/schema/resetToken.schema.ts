@@ -35,8 +35,9 @@ export class ResetToken extends Document {
   updatedAt: Date;
 
   @Prop({ required: false })
-@Field(() => String, { description: "Phone number associated with the reset token", nullable: true })
-phoneNumber?: string;
+  @Field(() => String, { description: "Phone number associated with the reset token", nullable: true })
+  phoneNumber?: string;
+
 
 }
 

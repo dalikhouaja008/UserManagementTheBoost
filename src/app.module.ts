@@ -43,10 +43,10 @@ import { MailService } from './services/mail.service';
       }),
       inject: [ConfigService],
     }),
+    CoreModule,
     AuthenticationModule,
     RolesModule,
     ScheduleModule.forRoot(),
-    CoreModule,
     GuardsModule,
     
   ],

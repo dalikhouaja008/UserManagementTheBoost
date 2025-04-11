@@ -10,7 +10,7 @@ import { MicroserviceRolesService } from './microservice-roles.service';
 @Module({
   imports: [
     CoreModule,
-    GuardsModule,
+    forwardRef(() => GuardsModule),
     forwardRef(() => AuthenticationModule)
   ],
   providers: [

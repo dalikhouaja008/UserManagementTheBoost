@@ -7,7 +7,7 @@ type Permission {
   actions: [Action!]!
 }
 
-"""Resources disponibles dans le service user-management"""
+"""Les ressources disponibles dans l'application"""
 enum Resource {
   USERS
   ROLES
@@ -21,7 +21,7 @@ enum Resource {
   DOCUMENTS
 }
 
-"""Actions disponibles dans l'application"""
+"""Les actions possibles sur les ressources"""
 enum Action {
   CREATE
   READ
@@ -70,9 +70,7 @@ type User {
 
   """Clé publique de la wallet de l'utilisateur"""
   publicKey: String
-
-  """Rôle de l'utilisateur (par exemple, 'user', 'admin')"""
-  role: String
+  permissions: [Permission!]!
 
   """Indique si l'utilisateur est vérifié"""
   isVerified: Boolean!
@@ -174,6 +172,9 @@ input UserInput {
   role: String
 
   """Clé publique de la wallet de l'utilisateur"""
+
+  publicKey: String
+
   phoneNumber: String
 
   """Secret pour l'authentification à deux facteurs"""

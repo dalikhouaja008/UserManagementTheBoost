@@ -63,6 +63,7 @@ export class User {
   })
   isVerified: boolean;
 
+
   @Prop({ required: false, unique: true, sparse: true }) // Add sparse to allow null values
   @Field(() => String, {
     description: "Numéro de téléphone de l'utilisateur",

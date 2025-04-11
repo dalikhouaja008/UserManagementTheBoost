@@ -33,18 +33,19 @@ export class UserInput {
   })
 
 
-<<<<<<< HEAD
-=======
   @Field(() => String, { nullable: true })
   @IsOptional()
   @IsPhoneNumber('TN') // Adjust for your region if needed
   phoneNumber?: string;
 
-  
->>>>>>> c09d11afd1c1706073e2ccd3e475b9de63bf655f
   @IsOptional()
   @IsString()
   publicKey?: string;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsPhoneNumber('TN') // Adjust for your region if needed
+  phoneNumber?: string;
 
   @Field(() => String, {
     description: "Secret pour l'authentification à deux facteurs",
@@ -61,4 +62,6 @@ export class UserInput {
   @IsOptional()
   @IsBoolean()
   isVerified?: boolean;
+
+
 }
