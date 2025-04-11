@@ -1,7 +1,10 @@
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document,Types } from 'mongoose';
+import { IsEthereumAddress } from 'class-validator';
+import { Document, Types } from 'mongoose';
 import { UserRole } from 'src/roles/enums/roles.enum';
+import { Permission } from 'src/roles/schemas/permission.schema';
+
 
 
 
@@ -9,7 +12,7 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 @ObjectType()
-export class User {
+export class User  extends Document {
   @Field(() => ID)
   _id: Types.ObjectId;
 
@@ -44,14 +47,19 @@ export class User {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
+  @IsEthereumAddress()
   publicKey?: string;
 
-  @Prop({ type: String, enum: UserRole, default: UserRole.USER }) 
-  @Field(() => String, {
-    description: "Rôle de l'utilisateur (par exemple, 'user', 'admin')",
-    nullable: true,
+  @Prop({
+    type: String,
+    enum: Object.values(UserRole),
+    set: (role: string) => role.toUpperCase(),
+    default: UserRole.USER
   })
-  role?: string;
+  role: string;
+
+  @Field(() => [Permission])
+  permissions?: Permission[];
 
   @Prop({ default: false })
   @Field(() => Boolean, {
@@ -68,10 +76,11 @@ export class User {
 
   @Prop({ required: false, unique: true })
   @Field(() => String, {
-  description: "Numéro de téléphone de l'utilisateur",
-  nullable: true,
-})
-phoneNumber?: string;
+
+    description: "Numéro de téléphone de l'utilisateur",
+    nullable: true,
+  })
+  phoneNumber?: string;
 
 }
 

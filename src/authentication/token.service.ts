@@ -23,7 +23,7 @@ export class TokenService {
     ): Promise<string> {
         try {
             const sessionId = `${Date.now()}_${nanoid(6)}`;
-            const sessionKey = `${this.SESSION_PREFIX}${sessionId}`;
+            const sessionKey = `${this.SESSION_PREFIX}${userId}:${sessionId}`;
             const userTokenKey = `${this.TOKEN_PREFIX}${userId}`;
 
             const sessionData: TokenData = {
@@ -31,27 +31,27 @@ export class TokenService {
                 lastActive: new Date()
             };
 
-            // Stocker les détails de la session
+            // 1. Stocker les détails de la session
             await this.redisCacheService.set(
                 sessionKey,
                 sessionData,
                 86400 // 24 heures
             );
 
-            // Récupérer et mettre à jour la liste des sessions de l'utilisateur
-            const userSessions = await this.redisCacheService.get(userTokenKey) || {};
-            userSessions[sessionId] = {
-                accessToken: tokenData.accessToken,
-                deviceInfo: tokenData.deviceInfo,
-                loginTime: tokenData.loginTime
-            };
-
-            // Mettre à jour la liste des sessions
-            await this.redisCacheService.set(
-                userTokenKey,
-                userSessions,
-                604800 // 7 jours
+            // 2. Ajouter le sessionId à l'ensemble des sessions de l'utilisateur
+            await this.redisCacheService.sadd(
+                `${this.USER_SESSIONS_PREFIX}${userId}`,
+                sessionId
             );
+
+            // 3. Stocker une référence pour le refresh token
+            if (tokenData.refreshToken) {
+                await this.redisCacheService.set(
+                    `refresh_token:${tokenData.refreshToken}`,
+                    { userId, sessionId },
+                    259200 // 3 jours
+                );
+            }
 
             return sessionId;
         } catch (error) {
@@ -293,9 +293,17 @@ export class TokenService {
    */
     async getSession(userId: string, sessionId: string): Promise<any> {
         try {
-            return await this.redisCacheService.get(
+            const session = await this.redisCacheService.get(
                 `${this.SESSION_PREFIX}${userId}:${sessionId}`
             );
+            if (session) {
+                return {
+                    ...session,
+                    id: sessionId,
+                    sessionId: sessionId
+                };
+            }
+            return null;
         } catch (error) {
             this.logger.error(`Error getting session for user ${userId}:`, error);
             return null;
@@ -356,13 +364,21 @@ export class TokenService {
             );
 
             // Récupérer les détails de chaque session
-            const sessionPromises = sessionIds.map(sessionId =>
-                this.getSession(userId, sessionId)
+            const sessions = await Promise.all(
+                sessionIds.map(async sessionId => {
+                    const session = await this.getSession(userId, sessionId);
+                    if (session) {
+                        return {
+                            ...session,
+                            id: sessionId, // Ajout explicite de l'id
+                            sessionId: sessionId // Garder sessionId pour compatibilité
+                        };
+                    }
+                    return null;
+                })
             );
 
-            const sessions = await Promise.all(sessionPromises);
-
-            // Filtrer les sessions null (expirées)
+            // Filtrer les sessions null (expirées) et s'assurer que l'id est présent
             return sessions.filter(session => session !== null);
         } catch (error) {
             this.logger.error(`Error getting all sessions for user ${userId}:`, error);
@@ -389,42 +405,46 @@ export class TokenService {
         }
     }
 
-     // Révoquer une session spécifique
-  async revokeSession(userId: string, sessionId: string): Promise<void> {
-    // Supprimer la session spécifique
-    await this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`);
-    // Retirer l'ID de session de l'ensemble des sessions
-    await this.redisCacheService.srem(
-      `${this.USER_SESSIONS_PREFIX}${userId}`,
-      sessionId
-    );
-  }
-
-  // Révoquer toutes les sessions
-  async revokeAllSessions(userId: string): Promise<void> {
-    const sessionIds = await this.redisCacheService.smembers(
-      `${this.USER_SESSIONS_PREFIX}${userId}`
-    );
-
-    // Supprimer toutes les sessions individuelles
-    await Promise.all(
-      sessionIds.map(sessionId =>
-        this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`)
-      )
-    );
-
-    // Supprimer l'ensemble des sessions
-    await this.redisCacheService.del(`${this.USER_SESSIONS_PREFIX}${userId}`);
-  }
-  async updateLastActive(userId: string, sessionId: string): Promise<void> {
-    const session = await this.getSession(userId, sessionId);
-    if (session) {
-      session.lastActive = new Date();
-      await this.redisCacheService.set(
-        `${this.SESSION_PREFIX}${userId}:${sessionId}`,
-        session,
-        SessionConfig.SESSION_TTL
-      );
+    // Révoquer une session spécifique
+    async revokeSession(userId: string, sessionId: string): Promise<void> {
+        // Supprimer la session spécifique
+        await this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`);
+        // Retirer l'ID de session de l'ensemble des sessions
+        await this.redisCacheService.srem(
+            `${this.USER_SESSIONS_PREFIX}${userId}`,
+            sessionId
+        );
     }
-  }
+
+    // Révoquer toutes les sessions
+    async revokeAllSessions(userId: string): Promise<void> {
+        const sessionIds = await this.redisCacheService.smembers(
+            `${this.USER_SESSIONS_PREFIX}${userId}`
+        );
+
+        // Supprimer toutes les sessions individuelles
+        await Promise.all(
+            sessionIds.map(sessionId =>
+                this.redisCacheService.del(`${this.SESSION_PREFIX}${userId}:${sessionId}`)
+            )
+        );
+
+        // Supprimer l'ensemble des sessions
+        await this.redisCacheService.del(`${this.USER_SESSIONS_PREFIX}${userId}`);
+    }
+    async updateLastActive(userId: string, sessionId: string): Promise<void> {
+        const session = await this.getSession(userId, sessionId);
+        if (session) {
+            session.lastActive = new Date();
+            await this.redisCacheService.set(
+                `${this.SESSION_PREFIX}${userId}:${sessionId}`,
+                session,
+                SessionConfig.SESSION_TTL
+            );
+        }
+    }
+
+
+
+
 }

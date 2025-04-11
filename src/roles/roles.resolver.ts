@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { RolesService } from './roles.service';
-import { Permission, Role } from './schemas/role.schema';
+import {  Role } from './schemas/role.schema';
 import { AuthenticationGuard } from '../guards/authentication.guard';
 import { Resource } from './enums/resource.enum';
 import { Action } from './enums/action.enum';
@@ -9,6 +9,7 @@ import { AuthorizationGuard } from 'src/guards/authorization.guards';
 import { CreateRoleInput } from './dtos/create-role.input';
 import { UpdateRoleInput } from './dtos/update-role.input';
 import { Permissions } from '../core/decorators/permissions.decorator';
+import { Permission } from './schemas/permission.schema';
 
 @Resolver(() => Role)
 export class RolesResolver {

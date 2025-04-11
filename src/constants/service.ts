@@ -23,5 +23,5 @@ export const SERVICES = {
     USER_AUTH_TCP: 3002,
     USER_AUTH_HTTP: 3001,
     LAND_TCP: 3003,
-    LAND_HTTP: 3004
+    LAND_HTTP: 5000
   };

@@ -159,6 +159,9 @@ docker exec boost-redis redis-cli SAVE
 
 # Localisation de la sauvegarde
 /data/dump.rdb
+
+#vider le cache
+redis-cli FLUSHALL
 ```
 
 ### Mises à Jour

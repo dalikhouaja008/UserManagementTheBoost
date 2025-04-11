@@ -38,7 +38,6 @@ export class UserInput {
   @IsPhoneNumber('TN') // Adjust for your region if needed
   phoneNumber?: string;
 
-  
   @IsOptional()
   @IsString()
   publicKey?: string;
@@ -58,4 +57,6 @@ export class UserInput {
   @IsOptional()
   @IsBoolean()
   isVerified?: boolean;
+
+
 }

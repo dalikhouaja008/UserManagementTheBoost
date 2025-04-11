@@ -38,7 +38,7 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
           transport: Transport.TCP,
           options: {
             host: configService.get('LAND_HOST', 'land'),
-            port: configService.get('LAND_PORT', 3003),
+            port: configService.get('LAND_PORT', 5000),
             timeout: 5000,
             retryAttempts: 3,
             retryDelay: 1000,

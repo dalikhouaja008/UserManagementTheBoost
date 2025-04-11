@@ -8,4 +8,5 @@ interface TokenData {
     };
     loginTime: Date;
     lastActive: Date;
+    permissions?: any[];
   }

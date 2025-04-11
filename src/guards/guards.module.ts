@@ -7,14 +7,14 @@ import { AuthorizationGuard } from './authorization.guards';
 import { MicroserviceAuthGuard } from './microservice-auth.guard';
 import { CoreModule } from '../core/core.module';
 import { AuthenticationModule } from '../authentication/authentication.module';
-import { SessionGuard } from './session.guards';
-import { TokenService } from 'src/authentication/token.service';
-import { RedisCacheService } from 'src/redis/redis-cahce.service';
+import { RolesModule } from 'src/roles/roles.module';
+
 
 @Module({
   imports: [
     CoreModule,
-    forwardRef(() => AuthenticationModule)
+    forwardRef(() => AuthenticationModule),
+    forwardRef(() => RolesModule),
   ],
   providers: [
     AuthenticationGuard,
