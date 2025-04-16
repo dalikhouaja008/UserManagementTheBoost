@@ -105,7 +105,22 @@ export class AuthenticationResolver {
     }
   }
   
+  @Mutation(() => User)
+  async verifyEmail(@Args('token') token: string): Promise<User> {
+    return this.authService.verifyEmail(token);
+  }
 
+  @Mutation(() => Boolean)
+  async resendVerificationEmail(@Args('email') email: string): Promise<boolean> {
+    const user = await this.authService.findUser(email, 'email', true);
+    
+    if (user.isVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+    
+    await this.authService.sendVerificationEmail(user);
+    return true;
+  }
 
   // Mutation pour demander un code de réinitialisation
   @Mutation(() => String)

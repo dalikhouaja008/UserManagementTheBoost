@@ -11,6 +11,7 @@ import { UserPreferencesResolver } from './user-preferences.resolver';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UserPreferences, UserPreferencesSchema } from './schema/userPreferences.schema';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
+import { UserProfileResolver } from './user-profile.resolver';
 
 @Module({
   imports: [
@@ -28,7 +29,8 @@ import { TwoFactorAuthService } from './TwoFactorAuth.service';
     TokenService,
     TwoFactorAuthService,
     UserPreferencesService,
-    UserPreferencesResolver
+    UserPreferencesResolver,
+    UserProfileResolver
   ],
   exports: [
     AuthenticationService,

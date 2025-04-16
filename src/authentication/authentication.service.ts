@@ -30,6 +30,7 @@ import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
 import * as crypto from 'crypto';
 import { TwilioService } from 'src/services/twilio.service';
+import { VerificationToken } from './schema/verificationToken.schema';
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
@@ -46,6 +47,8 @@ export class AuthenticationService {
     private RefreshTokenModel: Model<RefreshToken>,
     @InjectModel(ResetToken.name)
     private ResetTokenModel: Model<ResetToken>,
+    @InjectModel(VerificationToken.name)
+    private VerificationTokenModel: Model<VerificationToken>,
     private jwtService: JwtService,
     private mailService: MailService,
     @Inject(forwardRef(() => RolesService))
@@ -103,9 +106,7 @@ export class AuthenticationService {
   * Méthode utilitaire pour enregistrer un nouvel utilisateur
   */
   async signup(signupData: UserInput) {
-
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-
 
     // Vérifier si l'email existe déjà
     const existingUser = await this.findUser(email, 'email');
@@ -129,19 +130,206 @@ export class AuthenticationService {
       username,
       email,
       password: hashedPassword,
-
       publicKey: publicKey || null, // Optionnel
       twoFactorSecret: twoFactorSecret || null, // Optionnel
       role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
-      isVerified: isVerified || false,
+      isVerified: isVerified || false, // By default, user is not verified
       phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
-
     });
+
+    // If we're not bypassing verification (like for admin-created accounts)
+    if (!isVerified) {
+      try {
+        // Generate verification token
+        await this.sendVerificationEmail(newUser);
+      } catch (error) {
+        this.logger.error(`Failed to send verification email: ${error.message}`);
+        // Continue even if email fails - we don't want to block signup
+      }
+    }
 
     // Mettre le nouvel utilisateur en cache
     await this.redisCacheService.setUser(newUser);
 
     return newUser;
+  }
+
+   /**
+   * Send verification email to a newly registered user
+   */
+   async sendVerificationEmail(user: User): Promise<void> {
+    // Generate a verification token
+    const token = nanoid(64);
+    const expiryDate = new Date();
+    expiryDate.setHours(expiryDate.getHours() + 24); // 24 hours expiry
+
+    // Save the verification token
+    await this.VerificationTokenModel.create({
+      userId: user._id,
+      token,
+      expiryDate,
+      email: user.email,
+      used: false
+    });
+
+    // Send the verification email
+    await this.mailService.sendVerificationEmail(user.email, token);
+    this.logger.log(`Verification email sent to ${user.email}`);
+  }
+
+   /**
+   * Verify user email with token
+   */
+   async verifyEmail(token: string): Promise<User> {
+    // Find the verification token
+    const verificationToken = await this.VerificationTokenModel.findOne({
+      token,
+      used: false,
+      expiryDate: { $gt: new Date() }
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Update the user as verified
+    const user = await this.UserModel.findByIdAndUpdate(
+      verificationToken.userId,
+      { isVerified: true },
+      { new: true }
+    );
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Mark token as used
+    verificationToken.used = true;
+    await verificationToken.save();
+
+    // Update user in cache
+    await this.redisCacheService.setUser(user);
+
+    // Send welcome email
+    try {
+      await this.mailService.sendWelcomeEmail(user.email, user.username);
+    } catch (error) {
+      this.logger.error(`Failed to send welcome email: ${error.message}`);
+      // Continue execution even if welcome email fails
+    }
+
+    return user;
+  }
+
+  /**
+ * Send notification when account details are changed
+ */
+async notifyAccountChange(userId: string, changeType: string, details?: string): Promise<void> {
+  try {
+    const user = await this.findUser(userId, 'id');
+    if (!user) {
+      this.logger.warn(`Cannot send account change notification - user ${userId} not found`);
+      return;
+    }
+    
+    // Send the notification email
+    await this.mailService.sendAccountChangeEmail(user.email, {
+      changeType,
+      timestamp: new Date(),
+      details
+    });
+    
+    this.logger.log(`Account change notification sent to ${user.email}: ${changeType}`);
+  } catch (error) {
+    this.logger.error(`Failed to send account change notification: ${error.message}`);
+    // Don't throw - this is a notification that shouldn't block the operation
+  }
+}
+
+/**
+ * Update account profile with notification
+ */
+async updateUserProfile(userId: string, updateData: any): Promise<User> {
+  // Check what fields are being updated to determine change type
+  const changeTypes = [];
+  if (updateData.email) changeTypes.push('Email');
+  if (updateData.phoneNumber) changeTypes.push('Phone Number');
+  if (updateData.username) changeTypes.push('Username');
+  
+  const changeType = changeTypes.length > 0 
+    ? `Profile Update: ${changeTypes.join(', ')}`
+    : 'Profile Update';
+  
+  // Update the user
+  const updatedUser = await this.UserModel.findByIdAndUpdate(
+    userId,
+    { $set: updateData },
+    { new: true }
+  );
+  
+  if (!updatedUser) {
+    throw new NotFoundException(`User with ID ${userId} not found`);
+  }
+  
+  // Invalidate cache
+  if (updateData.email) {
+    await this.redisCacheService.invalidateUser(userId, updateData.email);
+  }
+  
+  // Update cache with new data
+  await this.redisCacheService.setUser(updatedUser);
+  
+  // Send notification
+  await this.notifyAccountChange(userId, changeType);
+  
+  return updatedUser;
+}
+
+  // Add to src/authentication/authentication.service.ts
+
+/**
+ * Check if login is from a new device and send security notification if needed
+ */
+async checkNewDeviceAndNotify(user: User, deviceInfo: any): Promise<void> {
+  try {
+    // Get user's previous sessions
+    const sessions = await this.tokenService.getAllSessions(user._id.toString());
+    
+    // Check if this is a new device
+    const isNewDevice = !sessions.some(session => 
+      session.deviceInfo?.device === deviceInfo.device &&
+      session.deviceInfo?.ip === deviceInfo.ip
+    );
+    
+    // If new device, send notification
+    if (isNewDevice && sessions.length > 0) {
+      this.logger.log(`New device login detected for user ${user.email}`);
+      
+      // Get geolocation data (simplified example)
+      const location = await this.getLocationFromIP(deviceInfo.ip);
+      
+      // Send security alert
+      await this.mailService.sendSecurityAlert(user.email, {
+        alertType: 'New Device Login',
+        timestamp: new Date(),
+        device: deviceInfo.device || deviceInfo.userAgent || 'Unknown device',
+        location: location || 'Unknown location',
+        ipAddress: deviceInfo.ip || 'Unknown IP',
+      });
+    }
+  } catch (error) {
+    // Log but don't throw - this shouldn't prevent login
+    this.logger.error(`Error checking for new device: ${error.message}`);
+  }
+}
+
+/**
+ * Mock function to get location from IP (in a real app, use a geolocation service)
+ */
+private async getLocationFromIP(ip: string): Promise<string> {
+  // In a real implementation, use a geolocation service API
+  // This is just a placeholder
+  return 'Unknown location';
 }
 
 
@@ -183,6 +371,9 @@ export class AuthenticationService {
       if (!isPasswordValid) {
         throw new UnauthorizedException('Identifiants invalides');
       }
+
+      // Check if login is from a new device and send security alert if needed
+      await this.checkNewDeviceAndNotify(user, deviceInfo);
 
       // Utilisation de la fonction utilitaire
       const isValidator = isValidatorRole(user.role);
@@ -336,15 +527,14 @@ export class AuthenticationService {
   * Méthode utilitaire pour changer le mot de passe de l'utilisateur
   */
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
-
     const user = await this.findUser(userId, 'id', true);
-
+  
     // Compare the old password with the password in DB
     const passwordMatch = await bcrypt.compare(oldPassword, user.password);
     if (!passwordMatch) {
       throw new UnauthorizedException('Wrong credentials');
     }
-
+  
     // Change user's password et récupérer l'utilisateur mis à jour
     const newHashedPassword = await bcrypt.hash(newPassword, 10);
     const updatedUser = await this.UserModel.findByIdAndUpdate(
@@ -352,15 +542,27 @@ export class AuthenticationService {
       { password: newHashedPassword },
       { new: true } // Retourne le document mis à jour
     );
-
-    // Invalider le cache
+  
+    // Invalidate cache
     await this.redisCacheService.invalidateUser(userId, user.email);
-
+  
     // Mettre à jour le cache avec le nouvel utilisateur
     if (updatedUser) {
       await this.redisCacheService.setUser(updatedUser);
     }
-
+  
+    // Send password change notification
+    await this.notifyAccountChange(userId, 'Password Changed');
+    
+    // Send security alert for password change
+    await this.mailService.sendSecurityAlert(user.email, {
+      alertType: 'Password Changed',
+      timestamp: new Date(),
+      device: 'N/A',
+      location: 'N/A',
+      ipAddress: 'N/A'
+    });
+  
     return updatedUser;
   }
 

@@ -1,3 +1,4 @@
+// src/guards/authentication.guard.ts
 import {
   Injectable,
   CanActivate,
@@ -8,16 +9,15 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { RolesService } from 'src/roles/roles.service';
-
 
 interface JWTPayload {
   userId: string;
   email?: string;
-  ethAddress?: string;  // Ajouter l'adresse Ethereum
+  ethAddress?: string;
   role?: string;
   permissions?: any[];
   isTwoFactorAuthenticated?: boolean;
+  sessionId?: string;
   iat?: number;
   exp?: number;
 }
@@ -28,7 +28,6 @@ export class AuthenticationGuard implements CanActivate {
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly rolesService: RolesService
   ) { }
 
   getRequest(context: ExecutionContext) {
@@ -59,34 +58,22 @@ export class AuthenticationGuard implements CanActivate {
         secret: process.env.JWT_SECRET || 'secret key',
       });
 
-      // Vérifier si l'utilisateur nécessite une 2FA
+      // Check if 2FA is required
       if (payload.isTwoFactorAuthenticated === false && request.path !== '/verify-2fa') {
         this.logger.warn(`2FA required for user ${payload.userId}`);
         throw new UnauthorizedException('Authentification à deux facteurs requise');
       }
 
-      // Si les permissions ne sont pas dans le token, les récupérer du rôle
-      if (payload.role && (!payload.permissions || payload.permissions.length === 0)) {
-        try {
-          const userRole = await this.rolesService.findByName(payload.role);
-          payload.permissions = userRole.permissions;
-        } catch (error) {
-          this.logger.error(`Erreur lors de la récupération des permissions: ${error.message}`);
-        }
+      // Add the payload to the request object
+      request.user = payload;
+      if (payload.sessionId) {
+        request.sessionId = payload.sessionId;
       }
-
-      this.logger.debug(`User authenticated with role: ${payload.role}`);
-      this.logger.debug(`User permissions: ${JSON.stringify(payload.permissions)}`);
-
-      // Ajouter le payload au request object
-      request.user = {
-        ...payload,
-        permissions: payload.permissions || []
-      };
+      
       return true;
     } catch (error) {
-      this.logger.error(`Erreur d'authentification: ${error.message}`, error.stack);
-      throw new UnauthorizedException('Token invalide');
+      this.logger.error(`Authentication error: ${error.message}`, error.stack);
+      throw new UnauthorizedException('Invalid token');
     }
   }
 }
