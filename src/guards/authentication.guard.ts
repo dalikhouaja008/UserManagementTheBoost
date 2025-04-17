@@ -1,4 +1,3 @@
-// src/guards/authentication.guard.ts
 import {
   Injectable,
   CanActivate,
@@ -58,9 +57,26 @@ export class AuthenticationGuard implements CanActivate {
         secret: process.env.JWT_SECRET || 'secret key',
       });
 
+      // Log the payload for debugging
+      this.logger.log('JWT Payload:', JSON.stringify(payload, null, 2));
+
+      // Determine the current operation/path
+      const ctx = GqlExecutionContext.create(context);
+      const { path } = ctx.getInfo();
+      
+      // List of paths that should bypass 2FA check
+      const bypassTwoFactorPaths = [
+        'login', 
+        'verifyTwoFactorLogin', 
+        'enableTwoFactorAuth', 
+        'verifyTwoFactorAuth'
+      ];
+
       // Check if 2FA is required
-      if (payload.isTwoFactorAuthenticated === false && request.path !== '/verify-2fa') {
-        this.logger.warn(`2FA required for user ${payload.userId}`);
+      const isTwoFactorPath = !bypassTwoFactorPaths.includes(path.key);
+      
+      if (isTwoFactorPath && payload.isTwoFactorAuthenticated === false) {
+        this.logger.warn(`2FA required for path: ${path.key}, User: ${payload.userId}`);
         throw new UnauthorizedException('Authentification à deux facteurs requise');
       }
 
@@ -73,6 +89,13 @@ export class AuthenticationGuard implements CanActivate {
       return true;
     } catch (error) {
       this.logger.error(`Authentication error: ${error.message}`, error.stack);
+      
+      // If it's already an UnauthorizedException, rethrow
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      // For other errors, throw a generic unauthorized error
       throw new UnauthorizedException('Invalid token');
     }
   }

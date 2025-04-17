@@ -56,7 +56,12 @@ export class User  extends Document {
     set: (role: string) => role.toUpperCase(),
     default: UserRole.USER
   })
+  @Field(() => String, {
+    description: "Role de l'utilisateur",
+  })
   role: string;
+
+  
 
   @Field(() => [Permission])
   permissions?: Permission[];

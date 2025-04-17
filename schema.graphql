@@ -70,6 +70,9 @@ type User {
 
   """Clé publique de la wallet de l'utilisateur"""
   publicKey: String
+
+  """Role de l'utilisateur"""
+  role: String!
   permissions: [Permission!]!
 
   """Indique si l'utilisateur est vérifié"""
@@ -179,7 +182,7 @@ type HealthCheck {
 type Query {
   validateUser(userId: String!): User!
   getActiveSessions: [Session!]!
-  getUserPreferences: UserPreferences
+  getUserPreferences: UserPreferences!
   getAvailableLandTypes: [String!]!
   getMyProfile: User!
   roles: [Role!]!
@@ -230,6 +233,7 @@ input UserInput {
   role: String
 
   """Clé publique de la wallet de l'utilisateur"""
+  publicKey: String
   phoneNumber: String
 
   """Secret pour l'authentification à deux facteurs"""

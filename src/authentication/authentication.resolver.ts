@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput } from './dto/login.input';
 import { RefreshTokenInput } from './dto/refreshToken.input';
@@ -31,9 +31,24 @@ export class AuthenticationResolver {
   
 
   @Mutation(() => User)
-  async signUp(@Args('signupData') signupData: UserInput) {
-    return this.authService.signup(signupData);
+async signUp(@Args('signupData') signupData: UserInput) {
+  try {
+    const newUser = await this.authService.signup(signupData);
+    
+    // Explicitly log the created user
+    console.log('Created User:', newUser);
+    
+    // Ensure _id is present
+    if (!newUser._id) {
+      throw new InternalServerErrorException('User creation failed: No user ID generated');
+    }
+    
+    return newUser;
+  } catch (error) {
+    console.error('Signup Error in Resolver:', error);
+    throw error;
   }
+}
 
   // Création de compte spécial (NOTAIRE, GEOMETRE, EXPERT_JURIDIQUE) - Réservé à l'admin
   @Mutation(() => User)

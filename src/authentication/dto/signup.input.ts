@@ -31,16 +31,14 @@ export class UserInput {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
-
+  @IsOptional()
+  @IsString()
+  publicKey?: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
   @IsPhoneNumber('TN') // Adjust for your region if needed
   phoneNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  publicKey?: string;
 
   @Field(() => String, {
     description: "Secret pour l'authentification à deux facteurs",
@@ -57,6 +55,4 @@ export class UserInput {
   @IsOptional()
   @IsBoolean()
   isVerified?: boolean;
-
-
 }
