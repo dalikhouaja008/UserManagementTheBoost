@@ -103,11 +103,12 @@ export class AuthenticationService {
   * Méthode utilitaire pour enregistrer un nouvel utilisateur
   */
   async signup(signupData: UserInput) {
-
+    console.log('1. Début de la méthode signup');
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-
+    console.log('2. Données extraites:', { email, username, role, isVerified, phoneNumber });
 
     // Vérifier si l'email existe déjà
+    console.log('3. Vérification de l\'email existant');
     const existingUser = await this.findUser(email, 'email');
     if (existingUser) {
       throw new BadRequestException('Email already in use');
@@ -115,6 +116,7 @@ export class AuthenticationService {
 
     // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
     if (phoneNumber) {
+      console.log('4. Vérification du numéro de téléphone');
       const phoneInUse = await this.UserModel.findOne({ phoneNumber });
       if (phoneInUse) {
         throw new BadRequestException('Phone number already in use');
@@ -122,29 +124,58 @@ export class AuthenticationService {
     }
 
     // Hasher le mot de passe
+    console.log('5. Hashage du mot de passe');
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Créer l'utilisateur avec les champs fournis
-    const newUser = await this.UserModel.create({
-      username,
-      email,
-      password: hashedPassword,
+    try {
+        console.log('6. Création de l\'utilisateur');
+        
+        // Créer l'utilisateur avec les champs fournis
+        const newUser = await this.UserModel.create({
+          username,
+          email,
+          password: hashedPassword,
+          publicKey: publicKey || null,
+          twoFactorSecret: twoFactorSecret || null,
+          role: role || UserRole.USER,
+          isVerified: isVerified || false,
+          phoneNumber: phoneNumber || null,
+          permissions: [], 
+          isTwoFactorEnabled: false
+        });
 
-      publicKey: publicKey || null, // Optionnel
-      twoFactorSecret: twoFactorSecret || null, // Optionnel
-      role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
-      isVerified: isVerified || false,
-      phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
+        console.log('7. Utilisateur créé:', newUser);
+        console.log('7.1 User ID:', newUser._id, typeof newUser._id);
 
-    });
+        // Mettre le nouvel utilisateur en cache
+        console.log('8. Mise en cache de l\'utilisateur');
+        await this.redisCacheService.setUser(newUser);
 
-    // Mettre le nouvel utilisateur en cache
-    await this.redisCacheService.setUser(newUser);
+        // Convertir explicitement le document Mongoose en objet plat
+        const userObject = {
+          _id: newUser._id ? newUser._id.toString() : null,
+          username: newUser.username,
+          email: newUser.email,
+          password: newUser.password,
+          twoFactorSecret: newUser.twoFactorSecret || null,
+          isTwoFactorEnabled: newUser.isTwoFactorEnabled || false,
+          publicKey: newUser.publicKey || null,
+          permissions: newUser.permissions || [],
+          isVerified: newUser.isVerified,
+          createdAt: newUser.createdAt || new Date(),
+          updatedAt: newUser.updatedAt || new Date(),
+          phoneNumber: newUser.phoneNumber || null
+        };
+        
+        console.log('9. Objet utilisateur créé:', userObject);
+        console.log('9.1 _id dans userObject:', userObject._id);
 
-    return newUser;
+        return userObject;
+    } catch (error) {
+        console.error('ERREUR lors de la création de l\'utilisateur:', error);
+        throw error;
+    }
 }
-
-
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
     const cachedUser = await this.redisCacheService.getUserById(userId);
