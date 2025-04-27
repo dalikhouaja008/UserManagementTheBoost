@@ -212,6 +212,7 @@ type Mutation {
   logoutAllDevices: Boolean!
   revokeSession(sessionId: String!): Boolean!
   forgotPasswordSms(phoneNumber: String!): String!
+  saveMetamaskPublicKey(input: SaveMetamaskKeyInput!): User!
   updateUserPreferences(preferences: UserPreferencesInput!): UserPreferences!
   updateProfile(profileData: UserProfileInput!): User!
   createRole(createRoleInput: CreateRoleInput!): Role!
@@ -264,6 +265,11 @@ input ChangePasswordInput {
 input ResetPasswordInput {
   token: String!
   newPassword: String!
+}
+
+input SaveMetamaskKeyInput {
+  ethereumAddress: String!
+  publicKey: String!
 }
 
 input UserPreferencesInput {

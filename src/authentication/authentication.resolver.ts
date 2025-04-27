@@ -19,6 +19,7 @@ import { Permissions } from '../core/decorators/permissions.decorator';
 import { DeviceInfo } from 'src/core/decorators/device-info.decorator';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
+import { SaveMetamaskKeyInput } from './dto/save-metamask-key.input';
 
 @Resolver(() => User)
 export class AuthenticationResolver {
@@ -397,5 +398,18 @@ async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<strin
   return 'Password reset OTP sent via SMS';
 }
 
+@UseGuards(AuthenticationGuard)
+@Mutation(() => User)
+async saveMetamaskPublicKey(
+  @Args('input') saveMetamaskKeyInput: SaveMetamaskKeyInput,
+  @Context() context
+) {
+  const userId = context.req.user.userId;
+  return this.authService.saveMetamaskPublicKey(
+    userId, 
+    saveMetamaskKeyInput.ethereumAddress,
+    saveMetamaskKeyInput.publicKey
+  );
+}
 }
 
