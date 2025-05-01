@@ -43,8 +43,6 @@ export class AuthenticationResolver {
     // Ensure all required fields exist
     if (!user._id) {
       console.error('Missing _id in user object');
-      // Manually add a placeholder ID for debugging (remove in production)
-      // user._id = 'placeholder-id';
     }
     
     return user;

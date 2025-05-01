@@ -10,7 +10,7 @@ export class BlockchainService implements OnModuleInit {
   private signer: Wallet;
   private landRegistry: Contract;
 
-  constructor(private configService: ConfigService) {}
+  constructor(private configService: ConfigService) { }
 
   async onModuleInit() {
     await this.initializeBlockchain();
@@ -35,7 +35,7 @@ export class BlockchainService implements OnModuleInit {
 
       this.provider = new JsonRpcProvider(rpcUrl);
       await this.provider.ready;
-      
+
       const network = await this.provider.getNetwork();
       this.logger.log(`Connected to network: ${network.name}`);
 
@@ -78,71 +78,143 @@ export class BlockchainService implements OnModuleInit {
   }
 
   /**
-   * Ajoute un validateur dans le contrat LandRegistry
-   * @param validatorAddress Adresse Ethereum du validateur
-   * @param validatorType Type de validateur (0: Notaire, 1: Géomètre, 2: Expert Juridique)
-   * @returns Résultat de la transaction
-   */
+  * Ajoute un validateur dans le contrat LandRegistry
+  * @param validatorAddress Adresse Ethereum du validateur
+  * @param validatorType Type de validateur (0: Notaire, 1: Géomètre, 2: Expert Juridique)
+  * @returns Résultat de la transaction
+  */
   async addValidator(validatorAddress: string, validatorType: number): Promise<any> {
     try {
       this.logger.log(`Adding validator ${validatorAddress} of type ${validatorType}`);
-      
-      // Vérifier que l'adresse est valide
+
+      // Vérifier que l'adresse est valide et standardisée
       if (!ethers.isAddress(validatorAddress)) {
         throw new Error(`Invalid Ethereum address: ${validatorAddress}`);
       }
-      
+
+      // Standardiser l'adresse (s'assurer qu'elle a le bon format)
+      const formattedAddress = ethers.getAddress(validatorAddress);
+
       // Vérifier que le type est valide (0, 1 ou 2)
       if (![0, 1, 2].includes(validatorType)) {
         throw new Error(`Invalid validator type: ${validatorType}. Must be 0, 1, or 2.`);
       }
-      
-      // Vérifier si le validateur existe déjà
-      const isAlreadyValidator = await this.landRegistry.validators(validatorAddress);
-      if (isAlreadyValidator) {
-        throw new Error(`Address ${validatorAddress} is already registered as a validator`);
+
+      // Vérifier l'état de la connexion
+      if (!this.provider || !this.landRegistry) {
+        await this.initializeBlockchain();
       }
-      
-      // Appeler la fonction addValidator du contrat
-      const tx = await this.landRegistry.addValidator(validatorAddress, validatorType, {
-        gasLimit: BigInt(300000) // Définir une limite de gas appropriée
+
+      // Vérifier que le signataire est le propriétaire
+      const contractOwner = await this.landRegistry.owner();
+      const signerAddress = await this.signer.getAddress();
+
+      this.logger.log(`Contract owner: ${contractOwner}`);
+      this.logger.log(`Signer address: ${signerAddress}`);
+
+      if (contractOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+        throw new Error(`Signer (${signerAddress}) is not the owner (${contractOwner}) of the contract`);
+      }
+
+      // Vérifier si le validateur existe déjà
+      const isAlreadyValidator = await this.landRegistry.validators(formattedAddress);
+      if (isAlreadyValidator) {
+        throw new Error(`Address ${formattedAddress} is already registered as a validator`);
+      }
+
+      // Estimer le gas nécessaire (avec une marge de sécurité)
+      let gasLimit;
+      try {
+        const estimatedGas = await this.landRegistry.addValidator.estimateGas(
+          formattedAddress,
+          validatorType
+        );
+        // Ajouter 20% de marge
+        gasLimit = BigInt(Math.floor(Number(estimatedGas) * 1.2));
+        this.logger.log(`Estimated gas: ${estimatedGas}, with margin: ${gasLimit}`);
+      } catch (error) {
+        this.logger.warn(`Failed to estimate gas: ${error.message}`);
+        // Fallback à une valeur par défaut plus élevée
+        gasLimit = BigInt(500000);
+      }
+
+      // Appeler la fonction addValidator du contrat avec plus de détails
+      this.logger.log(`Calling addValidator with address: ${formattedAddress}, type: ${validatorType}, gasLimit: ${gasLimit}`);
+      const tx = await this.landRegistry.addValidator(formattedAddress, validatorType, {
+        gasLimit
       });
-      
-      // Attendre la confirmation
-      const receipt = await tx.wait();
-      
+
+      this.logger.log(`Transaction sent: ${tx.hash}`);
+
+      // Attendre la confirmation avec timeout
+      const receipt = await Promise.race([
+        tx.wait(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000)
+        )
+      ]);
+
       // Vérifier le succès de la transaction
       if (receipt.status === 0) {
         throw new Error("Transaction failed");
       }
-      
-      this.logger.log(`Validator ${validatorAddress} successfully added with type ${validatorType}`, {
+
+      this.logger.log(`Validator ${formattedAddress} successfully added with type ${validatorType}`, {
         transactionHash: receipt.hash,
         blockNumber: receipt.blockNumber
       });
-      
+
       return {
         success: true,
         data: {
-          validatorAddress,
+          validatorAddress: formattedAddress,
           validatorType,
           transactionHash: receipt.hash,
           blockNumber: receipt.blockNumber
         },
-        message: `Validator ${validatorAddress} successfully added as ${this.getValidatorTypeString(validatorType)}`
+        message: `Validator ${formattedAddress} successfully added as ${this.getValidatorTypeString(validatorType)}`
       };
     } catch (error) {
       this.logger.error(`Error adding validator ${validatorAddress}:`, error);
-      
+
+      // Log plus détaillé de l'erreur
+      if (error.error) {
+        this.logger.error('Contract error details:', error.error);
+      }
+
+      // Essayer d'extraire plus d'informations sur l'erreur
+      let errorMessage = error.message || 'Unknown error';
+      let errorCode = error.code || 'UNKNOWN';
+
       // Gérer spécifiquement les erreurs du contrat
-      if (error.message.includes("InvalidValidator")) {
-        throw new Error(`Invalid validator address: ${validatorAddress}`);
+      if (error.message?.includes("execution reverted")) {
+        const revertReason = error.error?.data?.message || error.reason || 'Unknown reason';
+        errorMessage = `Contract execution reverted: ${revertReason}`;
       }
-      if (error.message.includes("UnauthorizedAccount")) {
-        throw new Error("You don't have permission to add validators");
+
+      if (error.message?.includes("InvalidValidator")) {
+        errorMessage = `Invalid validator address: ${validatorAddress}`;
       }
-      
-      throw new Error(`Failed to add validator: ${error.message}`);
+
+      if (error.message?.includes("UnauthorizedAccount") ||
+        error.message?.includes("only owner") ||
+        error.message?.includes("Not owner")) {
+        errorMessage = "You don't have permission to add validators";
+      }
+
+      if (error.code === 'INSUFFICIENT_FUNDS') {
+        errorMessage = 'Not enough ETH to pay for gas';
+      }
+
+      return {
+        success: false,
+        error: {
+          message: errorMessage,
+          code: errorCode,
+          originalError: error.message
+        },
+        message: `Failed to add validator: ${errorMessage}`
+      };
     }
   }
 

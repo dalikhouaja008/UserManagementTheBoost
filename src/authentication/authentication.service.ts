@@ -107,109 +107,172 @@ export class AuthenticationService {
  * avec support pour l'enregistrement des validateurs blockchain
  */
   async signup(signupData: UserInput) {
+    this.logger.log(`[SIGNUP] Starting user registration process for email: ${signupData.email}`);
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-
-    // Vérifier si l'email existe déjà
-    const existingUser = await this.findUser(email, 'email');
-    if (existingUser) {
-      throw new BadRequestException('Email already in use');
-    }
-
-    // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
-    if (phoneNumber) {
-      const phoneInUse = await this.UserModel.findOne({ phoneNumber });
-      if (phoneInUse) {
-        throw new BadRequestException('Phone number already in use');
+  
+    try {
+      // Vérifier si l'email existe déjà
+      this.logger.log(`[SIGNUP] Checking if email exists: ${email}`);
+      const existingUser = await this.findUser(email, 'email');
+      if (existingUser) {
+        this.logger.warn(`[SIGNUP] Email already in use: ${email}`);
+        throw new BadRequestException('Email already in use');
       }
-    }
-
-    // Vérifier si l'adresse Ethereum est fournie et valide pour les validateurs
-    if (isValidatorRole(role) && publicKey) {
-      if (!ethers.isAddress(publicKey)) {
-        throw new BadRequestException('Une adresse Ethereum valide est requise pour les validateurs');
-      }
-    }
-
-    // Hasher le mot de passe
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Créer l'utilisateur avec les champs fournis
-    const newUser = await this.UserModel.create({
-      username,
-      email,
-      password: hashedPassword,
-      publicKey: publicKey || null,
-      twoFactorSecret: twoFactorSecret || null,
-      role: role || UserRole.USER,
-      isVerified: isVerified || false,
-      phoneNumber: phoneNumber || null,
-      isBlockchainValidated: false
-    });
-
-    // Si l'utilisateur est un validateur et que l'adresse Ethereum est fournie,
-    // l'enregistrer dans la blockchain
-    if (isValidatorRole(role) && publicKey) {
-      try {
-        this.logger.log(`Registering validator ${username} on blockchain with address ${publicKey}`);
-
-        // Déterminer le type de validateur en fonction du rôle
-        let validatorType: number;
-        switch (role) {
-          case UserRole.NOTAIRE:
-            validatorType = 0;
-            break;
-          case UserRole.GEOMETRE:
-            validatorType = 1;
-            break;
-          case UserRole.EXPERT_JURIDIQUE:
-            validatorType = 2;
-            break;
-          default:
-            throw new BadRequestException('Rôle de validateur non reconnu');
+      this.logger.log(`[SIGNUP] Email check passed: ${email}`);
+  
+      // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
+      if (phoneNumber) {
+        this.logger.log(`[SIGNUP] Checking phone number: ${phoneNumber}`);
+        const phoneInUse = await this.UserModel.findOne({ phoneNumber });
+        if (phoneInUse) {
+          this.logger.warn(`[SIGNUP] Phone number already in use: ${phoneNumber}`);
+          throw new BadRequestException('Phone number already in use');
         }
-
-        // Enregistrer le validateur dans la blockchain
-        const blockchainResult = await this.blockchainService.addValidator(
-          publicKey,
-          validatorType
-        );
-
-        if (blockchainResult.success) {
-          // Mettre à jour l'utilisateur avec les informations blockchain
+        this.logger.log(`[SIGNUP] Phone number check passed: ${phoneNumber}`);
+      }
+  
+      // Vérifier si l'adresse Ethereum est fournie et valide pour les validateurs
+      if (isValidatorRole(role) && publicKey) {
+        this.logger.log(`[SIGNUP] Validator role detected: ${role}, checking Ethereum address: ${publicKey}`);
+        if (!ethers.isAddress(publicKey)) {
+          this.logger.warn(`[SIGNUP] Invalid Ethereum address: ${publicKey}`);
+          throw new BadRequestException('Une adresse Ethereum valide est requise pour les validateurs');
+        }
+        this.logger.log(`[SIGNUP] Ethereum address valid: ${publicKey}`);
+      }
+  
+      // Hasher le mot de passe
+      this.logger.log(`[SIGNUP] Hashing password for user: ${username}`);
+      const hashedPassword = await bcrypt.hash(password, 10);
+      this.logger.log(`[SIGNUP] Password hashed successfully`);
+  
+      // Créer l'utilisateur avec les champs fournis
+      this.logger.log(`[SIGNUP] Creating user in database: ${username}, role: ${role}`);
+      const newUser = await this.UserModel.create({
+        username,
+        email,
+        password: hashedPassword,
+        publicKey: publicKey || null,
+        twoFactorSecret: twoFactorSecret || null,
+        role: role || UserRole.USER,
+        isVerified: isVerified || false,
+        phoneNumber: phoneNumber || null,
+        isBlockchainValidated: false
+      });
+      this.logger.log(`[SIGNUP] User created in database with ID: ${newUser._id}`);
+  
+      // Si l'utilisateur est un validateur et que l'adresse Ethereum est fournie,
+      // l'enregistrer dans la blockchain
+      if (isValidatorRole(role) && publicKey) {
+        try {
+          this.logger.log(`[SIGNUP-BLOCKCHAIN] Starting blockchain registration for validator ${username} (${publicKey})`);
+  
+          // Déterminer le type de validateur en fonction du rôle
+          let validatorType: number;
+          switch (role) {
+            case UserRole.NOTAIRE:
+              validatorType = 0;
+              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: NOTAIRE -> type 0`);
+              break;
+            case UserRole.GEOMETRE:
+              validatorType = 1;
+              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: GEOMETRE -> type 1`);
+              break;
+            case UserRole.EXPERT_JURIDIQUE:
+              validatorType = 2;
+              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: EXPERT_JURIDIQUE -> type 2`);
+              break;
+            default:
+              this.logger.error(`[SIGNUP-BLOCKCHAIN] Invalid validator role: ${role}`);
+              throw new BadRequestException('Rôle de validateur non reconnu');
+          }
+  
+          // Enregistrer le validateur dans la blockchain
+          this.logger.log(`[SIGNUP-BLOCKCHAIN] Calling blockchain service to add validator: address=${publicKey}, type=${validatorType}`);
+          const blockchainResult = await this.blockchainService.addValidator(
+            publicKey,
+            validatorType
+          );
+          
+          this.logger.log(`[SIGNUP-BLOCKCHAIN] Blockchain registration result:`, JSON.stringify(blockchainResult, null, 2));
+  
+          if (blockchainResult.success) {
+            this.logger.log(`[SIGNUP-BLOCKCHAIN] Validator registration successful, updating user in database`);
+            // Mettre à jour l'utilisateur avec les informations blockchain
+            const updateResult = await this.UserModel.findByIdAndUpdate(
+              newUser._id,
+              {
+                $set: {
+                  blockchainTxHash: blockchainResult.data.transactionHash,
+                  blockchainValidatorType: validatorType,
+                  isBlockchainValidated: true
+                }
+              },
+              { new: true } // Pour retourner le document mis à jour
+            );
+            
+            if (updateResult) {
+              this.logger.log(`[SIGNUP-BLOCKCHAIN] User updated with blockchain info: 
+                - txHash: ${blockchainResult.data.transactionHash}
+                - blockNumber: ${blockchainResult.data.blockNumber}`);
+            } else {
+              this.logger.warn(`[SIGNUP-BLOCKCHAIN] User update failed after successful blockchain registration`);
+            }
+  
+            this.logger.log(`[SIGNUP-BLOCKCHAIN] Validator ${newUser.username} successfully registered on blockchain with hash ${blockchainResult.data.transactionHash}`);
+          } else if (blockchainResult.error) {
+            // Si blockchainResult a une structure d'erreur avec des détails
+            this.logger.error(`[SIGNUP-BLOCKCHAIN] Blockchain registration failed: 
+              - Message: ${blockchainResult.error.message}
+              - Code: ${blockchainResult.error.code}
+              - Original: ${blockchainResult.error.originalError}`);
+              
+            await this.UserModel.findByIdAndUpdate(
+              newUser._id,
+              {
+                $set: {
+                  blockchainValidationError: blockchainResult.error.message,
+                  isBlockchainValidated: false
+                }
+              }
+            );
+          }
+        } catch (error) {
+          // Ne pas faire échouer l'inscription si l'enregistrement blockchain échoue,
+          // mais enregistrer l'erreur
+          this.logger.error(`[SIGNUP-BLOCKCHAIN] Exception during blockchain registration: ${error.message}`, error);
+          this.logger.error(`[SIGNUP-BLOCKCHAIN] Stack trace:`, error.stack);
+          
+          if (error.code) {
+            this.logger.error(`[SIGNUP-BLOCKCHAIN] Error code: ${error.code}`);
+          }
+          
+          if (error.reason) {
+            this.logger.error(`[SIGNUP-BLOCKCHAIN] Error reason: ${error.reason}`);
+          }
+  
           await this.UserModel.findByIdAndUpdate(
             newUser._id,
             {
               $set: {
-                blockchainTxHash: blockchainResult.data.transactionHash,
-                blockchainValidatorType: validatorType,
-                isBlockchainValidated: true
+                blockchainValidationError: error.message,
+                isBlockchainValidated: false
               }
             }
           );
-
-          this.logger.log(`Validator ${newUser.username} successfully registered on blockchain with hash ${blockchainResult.data.transactionHash}`);
         }
-      } catch (error) {
-        // Ne pas faire échouer l'inscription si l'enregistrement blockchain échoue,
-        // mais enregistrer l'erreur
-        this.logger.error(`Failed to register validator on blockchain: ${error.message}`);
-
-        await this.UserModel.findByIdAndUpdate(
-          newUser._id,
-          {
-            $set: {
-              blockchainValidationError: error.message,
-              isBlockchainValidated: false
-            }
-          }
-        );
       }
+  
+      // Mettre le nouvel utilisateur en cache
+      this.logger.log(`[SIGNUP] Setting user in cache: ${newUser._id}`);
+      await this.redisCacheService.setUser(newUser);
+      this.logger.log(`[SIGNUP] User registration process completed successfully for: ${email}`);
+  
+      return newUser;
+    } catch (error) {
+      this.logger.error(`[SIGNUP] Registration process failed for ${email}: ${error.message}`, error.stack);
+      throw error; // Propager l'erreur
     }
-
-    // Mettre le nouvel utilisateur en cache
-    await this.redisCacheService.setUser(newUser);
-
-    return newUser;
   }
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
