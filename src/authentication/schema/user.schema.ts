@@ -5,14 +5,11 @@ import { Document, Types } from 'mongoose';
 import { UserRole } from 'src/roles/enums/roles.enum';
 import { Permission } from 'src/roles/schemas/permission.schema';
 
-
-
-
 export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 @ObjectType()
-export class User  extends Document {
+export class User extends Document {
   @Field(() => ID)
   _id: Types.ObjectId;
 
@@ -56,6 +53,7 @@ export class User  extends Document {
     set: (role: string) => role.toUpperCase(),
     default: UserRole.USER
   })
+  @Field(() => String) // Assurez-vous d'avoir cette ligne
   role: string;
 
   @Field(() => [Permission])
@@ -76,12 +74,39 @@ export class User  extends Document {
 
   @Prop({ required: false, unique: true })
   @Field(() => String, {
-
     description: "Numéro de téléphone de l'utilisateur",
     nullable: true,
   })
   phoneNumber?: string;
 
+  // Nouveaux champs pour blockchain
+  @Prop()
+  @Field(() => String, {
+    description: "Hash de la transaction blockchain pour l'enregistrement du validateur",
+    nullable: true,
+  })
+  blockchainTxHash?: string;
+
+  @Prop()
+  @Field(() => Number, {
+    description: "Type de validateur sur la blockchain (0: Notaire, 1: Géomètre, 2: Expert Juridique)",
+    nullable: true,
+  })
+  blockchainValidatorType?: number;
+
+  @Prop({ default: false })
+  @Field(() => Boolean, {
+    description: "Indique si l'utilisateur a été enregistré sur la blockchain",
+    defaultValue: false,
+  })
+  isBlockchainValidated: boolean;
+
+  @Prop()
+  @Field(() => String, {
+    description: "Message d'erreur si l'enregistrement blockchain a échoué",
+    nullable: true,
+  })
+  blockchainValidationError?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
