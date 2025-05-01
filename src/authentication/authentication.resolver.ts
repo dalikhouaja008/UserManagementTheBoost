@@ -28,11 +28,26 @@ export class AuthenticationResolver {
     private readonly jwtService: JwtService,
     private readonly tokenService: TokenService
   ) { }
-  
+
 
   @Mutation(() => User)
-  async signUp(@Args('signupData') signupData: UserInput) {
-    return this.authService.signup(signupData);
+  async signUp(@Args('signupData') signupData: UserInput): Promise<any> {
+    console.log('Signup mutation called with data:', signupData);
+    
+    const user = await this.authService.signup(signupData);
+    
+    // Debug what is being returned
+    console.log('User returned from service:', user);
+    console.log('User ID:', user._id);
+    
+    // Ensure all required fields exist
+    if (!user._id) {
+      console.error('Missing _id in user object');
+      // Manually add a placeholder ID for debugging (remove in production)
+      // user._id = 'placeholder-id';
+    }
+    
+    return user;
   }
 
   // Création de compte spécial (NOTAIRE, GEOMETRE, EXPERT_JURIDIQUE) - Réservé à l'admin
@@ -104,7 +119,7 @@ export class AuthenticationResolver {
       throw new Error(error.message); // ✅ Throw GraphQL error if user not found
     }
   }
-  
+
 
 
   // Mutation pour demander un code de réinitialisation
@@ -115,19 +130,19 @@ export class AuthenticationResolver {
 
   // Mutation pour vérifier un code de réinitialisation
   @Mutation(() => String)
-async verifyCode(
+  async verifyCode(
     @Args('identifier') identifier: string, // Can be email or phone
     @Args('code') code: string
-) {
+  ) {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
     const resetToken = await this.authService.verifyCode(identifier, code);
     if (!resetToken) {
-        throw new BadRequestException('Invalid or expired OTP code.');
+      throw new BadRequestException('Invalid or expired OTP code.');
     }
 
     return 'Code verified successfully!';
-}
+  }
 
 
   // Mutation pour réinitialiser le mot de passe
@@ -362,10 +377,10 @@ async verifyCode(
   }
 
   @Mutation(() => String)
-async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
-  await this.authService.forgotPassword(phoneNumber);
-  return 'Password reset OTP sent via SMS';
-}
+  async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
+    await this.authService.forgotPassword(phoneNumber);
+    return 'Password reset OTP sent via SMS';
+  }
 
 }
 

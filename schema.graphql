@@ -70,6 +70,7 @@ type User {
 
   """Clé publique de la wallet de l'utilisateur"""
   publicKey: String
+  role: String!
   permissions: [Permission!]!
 
   """Indique si l'utilisateur est vérifié"""
@@ -83,6 +84,20 @@ type User {
 
   """Numéro de téléphone de l'utilisateur"""
   phoneNumber: String
+
+  """Hash de la transaction blockchain pour l'enregistrement du validateur"""
+  blockchainTxHash: String
+
+  """
+  Type de validateur sur la blockchain (0: Notaire, 1: Géomètre, 2: Expert Juridique)
+  """
+  blockchainValidatorType: Float
+
+  """Indique si l'utilisateur a été enregistré sur la blockchain"""
+  isBlockchainValidated: Boolean!
+
+  """Message d'erreur si l'enregistrement blockchain a échoué"""
+  blockchainValidationError: String
 }
 
 """
@@ -212,10 +227,13 @@ input UserInput {
   """Mot de passe de l'utilisateur"""
   password: String!
 
+  """Clé publique de la wallet de l'utilisateur"""
+  publicKey: String
+
   """Rôle de l'utilisateur (par exemple, 'user', 'admin')"""
   role: String
 
-  """Clé publique de la wallet de l'utilisateur"""
+  """Numéro de téléphone de l'utilisateur"""
   phoneNumber: String
 
   """Secret pour l'authentification à deux facteurs"""

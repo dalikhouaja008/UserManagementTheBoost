@@ -11,6 +11,7 @@ import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
 import { MailService } from './services/mail.service';
+import { BlockchainModule } from './blockchain/blockchain.module';
 
 
 
@@ -48,6 +49,7 @@ import { MailService } from './services/mail.service';
     RolesModule,
     ScheduleModule.forRoot(),
     GuardsModule,
+    BlockchainModule,
     
   ],
   

@@ -11,6 +11,7 @@ import { UserPreferencesResolver } from './user-preferences.resolver';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UserPreferences, UserPreferencesSchema } from './schema/userPreferences.schema';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
+import { BlockchainModule } from 'src/blockchain/blockchain.module';
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { TwoFactorAuthService } from './TwoFactorAuth.service';
     forwardRef(() => GuardsModule),
     MongooseModule.forFeature([
       { name: UserPreferences.name, schema: UserPreferencesSchema }
-    ])
+    ]),
+    
   ],
   providers: [
     AuthenticationMicroserviceResolver,

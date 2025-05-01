@@ -30,6 +30,8 @@ import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
 import * as crypto from 'crypto';
 import { TwilioService } from 'src/services/twilio.service';
+import { BlockchainService } from 'src/blockchain/blockchain.service';
+import { ethers } from 'ethers';
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
@@ -53,7 +55,8 @@ export class AuthenticationService {
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
     private readonly redisCacheService: RedisCacheService,
-    private readonly tokenService: TokenService
+    private readonly tokenService: TokenService,
+    private readonly blockchainService: BlockchainService
   ) { }
   /**
   * Méthode utilitaire pour trouver un utilisateur
@@ -100,12 +103,11 @@ export class AuthenticationService {
   }
 
   /**
-  * Méthode utilitaire pour enregistrer un nouvel utilisateur
-  */
+ * Méthode utilitaire pour enregistrer un nouvel utilisateur
+ * avec support pour l'enregistrement des validateurs blockchain
+ */
   async signup(signupData: UserInput) {
-
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-
 
     // Vérifier si l'email existe déjà
     const existingUser = await this.findUser(email, 'email');
@@ -121,6 +123,13 @@ export class AuthenticationService {
       }
     }
 
+    // Vérifier si l'adresse Ethereum est fournie et valide pour les validateurs
+    if (isValidatorRole(role) && publicKey) {
+      if (!ethers.isAddress(publicKey)) {
+        throw new BadRequestException('Une adresse Ethereum valide est requise pour les validateurs');
+      }
+    }
+
     // Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -129,22 +138,79 @@ export class AuthenticationService {
       username,
       email,
       password: hashedPassword,
-
-      publicKey: publicKey || null, // Optionnel
-      twoFactorSecret: twoFactorSecret || null, // Optionnel
-      role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
+      publicKey: publicKey || null,
+      twoFactorSecret: twoFactorSecret || null,
+      role: role || UserRole.USER,
       isVerified: isVerified || false,
-      phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
-
+      phoneNumber: phoneNumber || null,
+      isBlockchainValidated: false
     });
+
+    // Si l'utilisateur est un validateur et que l'adresse Ethereum est fournie,
+    // l'enregistrer dans la blockchain
+    if (isValidatorRole(role) && publicKey) {
+      try {
+        this.logger.log(`Registering validator ${username} on blockchain with address ${publicKey}`);
+
+        // Déterminer le type de validateur en fonction du rôle
+        let validatorType: number;
+        switch (role) {
+          case UserRole.NOTAIRE:
+            validatorType = 0;
+            break;
+          case UserRole.GEOMETRE:
+            validatorType = 1;
+            break;
+          case UserRole.EXPERT_JURIDIQUE:
+            validatorType = 2;
+            break;
+          default:
+            throw new BadRequestException('Rôle de validateur non reconnu');
+        }
+
+        // Enregistrer le validateur dans la blockchain
+        const blockchainResult = await this.blockchainService.addValidator(
+          publicKey,
+          validatorType
+        );
+
+        if (blockchainResult.success) {
+          // Mettre à jour l'utilisateur avec les informations blockchain
+          await this.UserModel.findByIdAndUpdate(
+            newUser._id,
+            {
+              $set: {
+                blockchainTxHash: blockchainResult.data.transactionHash,
+                blockchainValidatorType: validatorType,
+                isBlockchainValidated: true
+              }
+            }
+          );
+
+          this.logger.log(`Validator ${newUser.username} successfully registered on blockchain with hash ${blockchainResult.data.transactionHash}`);
+        }
+      } catch (error) {
+        // Ne pas faire échouer l'inscription si l'enregistrement blockchain échoue,
+        // mais enregistrer l'erreur
+        this.logger.error(`Failed to register validator on blockchain: ${error.message}`);
+
+        await this.UserModel.findByIdAndUpdate(
+          newUser._id,
+          {
+            $set: {
+              blockchainValidationError: error.message,
+              isBlockchainValidated: false
+            }
+          }
+        );
+      }
+    }
 
     // Mettre le nouvel utilisateur en cache
     await this.redisCacheService.setUser(newUser);
 
     return newUser;
-}
-
-
+  }
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
     const cachedUser = await this.redisCacheService.getUserById(userId);
@@ -219,7 +285,7 @@ export class AuthenticationService {
       }
 
       console.log(`[${timestamp}] 🔓 Direct access granted for ${isValidator ? 'validator' : 'user'}: ${user.email}`);
-      
+
       const tokens = await this.generateUserTokens(
         user._id,
         false,
@@ -368,45 +434,45 @@ export class AuthenticationService {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
     let user;
     if (isEmail) {
-        user = await this.UserModel.findOne({ email: identifier });
+      user = await this.UserModel.findOne({ email: identifier });
     } else {
-        let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
-        user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
+      let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
+      user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
     }
 
     if (!user) {
-        this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
-        throw new Error('User not found');  // ✅ Throw error here
+      this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
+      throw new Error('User not found');  // ✅ Throw error here
     }
 
     const expiryDate = new Date();
-    expiryDate.setMinutes(expiryDate.getMinutes() + 15); 
+    expiryDate.setMinutes(expiryDate.getMinutes() + 15);
 
     let resetToken: string;
     if (isEmail) {
-        resetToken = nanoid(64);
+      resetToken = nanoid(64);
     } else {
-        resetToken = generateOtp();
+      resetToken = generateOtp();
     }
 
     await this.ResetTokenModel.create({
-        token: resetToken,
-        userId: user._id,
-        expiryDate,
-        email: user.email,
-        phoneNumber: identifier,
+      token: resetToken,
+      userId: user._id,
+      expiryDate,
+      email: user.email,
+      phoneNumber: identifier,
     });
 
     if (isEmail) {
-        this.logger.log(`Sending password reset email to ${identifier}`);
-        await this.mailService.sendPasswordResetEmail(identifier, resetToken);
+      this.logger.log(`Sending password reset email to ${identifier}`);
+      await this.mailService.sendPasswordResetEmail(identifier, resetToken);
     } else {
-        this.logger.log(`Sending password reset SMS to ${identifier}`);
-        await this.twilioService.sendSms(identifier, `Your OTP code is: ${resetToken}`);
+      this.logger.log(`Sending password reset SMS to ${identifier}`);
+      await this.twilioService.sendSms(identifier, `Your OTP code is: ${resetToken}`);
     }
 
     this.logger.log(`Password reset code sent to ${identifier}`);
-}
+  }
 
 
   async resetPasswordWithToken(token: string, newPassword: string): Promise<User> {
@@ -485,7 +551,7 @@ export class AuthenticationService {
     const payload = {
       userId: user._id,
       email: user.email,
-      ethAddress: user.publicKey, 
+      ethAddress: user.publicKey,
       role: user.role,
       permissions: await this.rolesService.getRolePermissions(user.role),
       sessionId,
@@ -578,37 +644,37 @@ export class AuthenticationService {
   async verifyCode(identifier: string, code: string) {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
-    const query = isEmail 
-        ? { email: identifier } 
-        : { phoneNumber: identifier };
+    const query = isEmail
+      ? { email: identifier }
+      : { phoneNumber: identifier };
 
     const resetToken = await this.ResetTokenModel.findOne({
-        ...query,
-        token: code,
-        used: false,
-        expiryDate: { $gt: new Date() }
+      ...query,
+      token: code,
+      used: false,
+      expiryDate: { $gt: new Date() }
     });
 
     if (!resetToken) {
-        this.logger.warn(`Failed OTP verification for ${identifier}`);
-        throw new BadRequestException('Invalid or expired OTP code.');
+      this.logger.warn(`Failed OTP verification for ${identifier}`);
+      throw new BadRequestException('Invalid or expired OTP code.');
     }
 
     resetToken.used = true;
     await resetToken.save();
 
     return 'Code verified successfully!';
-}
+  }
 
 
-async forgotPasswordSms(phoneNumber: string): Promise<void> {
+  async forgotPasswordSms(phoneNumber: string): Promise<void> {
     const user = await this.UserModel.findOne({ phoneNumber });
-  
+
     if (user) {
       const otp = generateOtp();
       const expiryDate = new Date();
       expiryDate.setMinutes(expiryDate.getMinutes() + 15); // OTP valid for 10 mins
-  
+
       await this.ResetTokenModel.create({
         token: otp,
         userId: user._id,
@@ -616,13 +682,13 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
         email: user.email,
         phoneNumber: phoneNumber,
       });
-  
+
       await this.twilioService.sendSms(phoneNumber, `Your OTP code is: ${otp}`);
     } else {
       this.logger.warn(`User with phone number ${phoneNumber} not found`);
     }
   }
-  
+
 
 
 

@@ -14,6 +14,7 @@ import { SERVICES } from 'src/constants/service';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { RedisCacheModule } from 'src/redis/redis-cache.module';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
+import { BlockchainService } from 'src/blockchain/blockchain.service';
 
 @Global()
 @Module({
@@ -83,6 +84,7 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
+    BlockchainService
   ],
   exports: [
     JwtModule,
@@ -93,6 +95,7 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
     MicroserviceCommunicationService,
     RedisCacheService,
     RedisModule,
+    BlockchainService
 
   ]
 })

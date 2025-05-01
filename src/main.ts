@@ -2,10 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Transport } from '@nestjs/microservices';
-import * as cookieParser from 'cookie-parser';
 import { MicroserviceErrorInterceptor } from './core/interceptors/microservice-error.interceptor';
 import { MicroserviceExceptionFilter } from './core/filters/microservice-exveption.filter';
 import { RedisCacheService } from './redis/redis-cahce.service';
+const cookieParser = require('cookie-parser');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
