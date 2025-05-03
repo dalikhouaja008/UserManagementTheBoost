@@ -15,6 +15,8 @@ import { RedisModule } from '@nestjs-modules/ioredis';
 import { RedisCacheModule } from 'src/redis/redis-cache.module';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 import { BlockchainService } from 'src/blockchain/blockchain.service';
+import { EmailTemplateService } from 'src/services/email-template.service';
+import { VerificationToken, VerificationTokenSchema } from 'src/authentication/schema/verificationToken.schema';
 
 @Global()
 @Module({
@@ -30,7 +32,8 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
-      { name: ResetToken.name, schema: ResetTokenSchema }
+      { name: ResetToken.name, schema: ResetTokenSchema },
+      { name: VerificationToken.name, schema: VerificationTokenSchema } 
     ]),
     ClientsModule.registerAsync([
       {
@@ -49,7 +52,7 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
       },
 
     ]),
-    RedisModule.forRootAsync({
+    /*RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
@@ -76,10 +79,11 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
           },
         };
       },
-    }),
-
+    }),*/
+    RedisCacheModule,
   ],
   providers: [
+    EmailTemplateService,
     MailService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
@@ -87,6 +91,7 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
     BlockchainService
   ],
   exports: [
+    EmailTemplateService,
     JwtModule,
     MongooseModule,
     ClientsModule,
@@ -94,8 +99,8 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
-    RedisModule,
-    BlockchainService
+    BlockchainService,
+    RedisCacheService,
 
   ]
 })

@@ -1,4 +1,4 @@
-import { UseGuards } from '@nestjs/common';
+import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { AuthenticationGuard } from 'src/guards/authentication.guard';
 import { UserPreferencesService } from '../authentication/user-preferences.service';
@@ -7,17 +7,23 @@ import { UserPreferencesInput } from './dto/userPreferences.input';
 
 @Resolver(() => UserPreferences)
 export class UserPreferencesResolver {
+  logger: any;
   constructor(private readonly userPreferencesService: UserPreferencesService) {}
 
-  @Query(() => UserPreferences, { nullable: true })
-  @UseGuards(AuthenticationGuard)
-  async getUserPreferences(@Context() context) {
+  @Query(() => UserPreferences)
+
+async getUserPreferences(@Context() context) {
+  try {
     const userId = context.req.user.userId;
     return this.userPreferencesService.findByUserId(userId);
+  } catch (error) {
+    this.logger.error('Error fetching user preferences:', error);
+    throw new UnauthorizedException('Unable to fetch user preferences');
   }
+}
 
   @Mutation(() => UserPreferences)
-  @UseGuards(AuthenticationGuard)
+
   async updateUserPreferences(
     @Context() context,
     @Args('preferences') preferencesData: UserPreferencesInput,
