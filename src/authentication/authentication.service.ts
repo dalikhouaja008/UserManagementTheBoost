@@ -28,10 +28,9 @@ import { Action } from 'src/roles/enums/action.enum';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
-import * as crypto from 'crypto';
 import { TwilioService } from 'src/services/twilio.service';
+import { VerificationToken } from './schema/verificationToken.schema';
 import { BlockchainService } from 'src/blockchain/blockchain.service';
-import { ethers } from 'ethers';
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
@@ -48,6 +47,8 @@ export class AuthenticationService {
     private RefreshTokenModel: Model<RefreshToken>,
     @InjectModel(ResetToken.name)
     private ResetTokenModel: Model<ResetToken>,
+    @InjectModel(VerificationToken.name)
+    private VerificationTokenModel: Model<VerificationToken>,
     private jwtService: JwtService,
     private mailService: MailService,
     @Inject(forwardRef(() => RolesService))
@@ -107,173 +108,223 @@ export class AuthenticationService {
  * avec support pour l'enregistrement des validateurs blockchain
  */
   async signup(signupData: UserInput) {
-    this.logger.log(`[SIGNUP] Starting user registration process for email: ${signupData.email}`);
+
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
-  
+
+
+    // Vérifier si l'email existe déjà
+    const existingUser = await this.findUser(email, 'email');
+    if (existingUser) {
+      throw new BadRequestException('Email already in use');
+    }
+
+    // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
+    if (phoneNumber) {
+      const phoneInUse = await this.UserModel.findOne({ phoneNumber });
+      if (phoneInUse) {
+        throw new BadRequestException('Phone number already in use');
+      }
+    }
+
+    // Hasher le mot de passe
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Créer l'utilisateur avec les champs fournis
+    const newUser = await this.UserModel.create({
+      username,
+      email,
+      password: hashedPassword,
+
+      publicKey: publicKey || null, // Optionnel
+      twoFactorSecret: twoFactorSecret || null, // Optionnel
+      role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
+      isVerified: isVerified || false,
+      phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
+
+    });
+
+    // Mettre le nouvel utilisateur en cache
+    await this.redisCacheService.setUser(newUser);
+
+    return newUser;
+  }
+  /**
+    * Send verification email to a newly registered user
+    */
+  async sendVerificationEmail(user: User): Promise<void> {
+    // Generate a verification token
+    const token = nanoid(64);
+    const expiryDate = new Date();
+    expiryDate.setHours(expiryDate.getHours() + 24); // 24 hours expiry
+
+    // Save the verification token
+    await this.VerificationTokenModel.create({
+      userId: user._id,
+      token,
+      expiryDate,
+      email: user.email,
+      used: false
+    });
+
+    // Send the verification email
+    await this.mailService.sendVerificationEmail(user.email, token);
+    this.logger.log(`Verification email sent to ${user.email}`);
+  }
+
+  /**
+  * Verify user email with token
+  */
+  async verifyEmail(token: string): Promise<User> {
+    // Find the verification token
+    const verificationToken = await this.VerificationTokenModel.findOne({
+      token,
+      used: false,
+      expiryDate: { $gt: new Date() }
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Update the user as verified
+    const user = await this.UserModel.findByIdAndUpdate(
+      verificationToken.userId,
+      { isVerified: true },
+      { new: true }
+    );
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Mark token as used
+    verificationToken.used = true;
+    await verificationToken.save();
+
+    // Update user in cache
+    await this.redisCacheService.setUser(user);
+
+    // Send welcome email
     try {
-      // Vérifier si l'email existe déjà
-      this.logger.log(`[SIGNUP] Checking if email exists: ${email}`);
-      const existingUser = await this.findUser(email, 'email');
-      if (existingUser) {
-        this.logger.warn(`[SIGNUP] Email already in use: ${email}`);
-        throw new BadRequestException('Email already in use');
-      }
-      this.logger.log(`[SIGNUP] Email check passed: ${email}`);
-  
-      // Vérifier si le numéro de téléphone est déjà utilisé (si fourni)
-      if (phoneNumber) {
-        this.logger.log(`[SIGNUP] Checking phone number: ${phoneNumber}`);
-        const phoneInUse = await this.UserModel.findOne({ phoneNumber });
-        if (phoneInUse) {
-          this.logger.warn(`[SIGNUP] Phone number already in use: ${phoneNumber}`);
-          throw new BadRequestException('Phone number already in use');
-        }
-        this.logger.log(`[SIGNUP] Phone number check passed: ${phoneNumber}`);
-      }
-  
-      // Vérifier si l'adresse Ethereum est fournie et valide pour les validateurs
-      if (isValidatorRole(role) && publicKey) {
-        this.logger.log(`[SIGNUP] Validator role detected: ${role}, checking Ethereum address: ${publicKey}`);
-        if (!ethers.isAddress(publicKey)) {
-          this.logger.warn(`[SIGNUP] Invalid Ethereum address: ${publicKey}`);
-          throw new BadRequestException('Une adresse Ethereum valide est requise pour les validateurs');
-        }
-        this.logger.log(`[SIGNUP] Ethereum address valid: ${publicKey}`);
-      }
-  
-      // Hasher le mot de passe
-      this.logger.log(`[SIGNUP] Hashing password for user: ${username}`);
-      const hashedPassword = await bcrypt.hash(password, 10);
-      this.logger.log(`[SIGNUP] Password hashed successfully`);
-  
-      // Créer l'utilisateur avec les champs fournis
-      this.logger.log(`[SIGNUP] Creating user in database: ${username}, role: ${role}`);
-      const newUser = await this.UserModel.create({
-        username,
-        email,
-        password: hashedPassword,
-        publicKey: publicKey || null,
-        twoFactorSecret: twoFactorSecret || null,
-        role: role || UserRole.USER,
-        isVerified: isVerified || false,
-        phoneNumber: phoneNumber || null,
-        isBlockchainValidated: false
-      });
-      this.logger.log(`[SIGNUP] User created in database with ID: ${newUser._id}`);
-  
-      // Si l'utilisateur est un validateur et que l'adresse Ethereum est fournie,
-      // l'enregistrer dans la blockchain
-      if (isValidatorRole(role) && publicKey) {
-        try {
-          this.logger.log(`[SIGNUP-BLOCKCHAIN] Starting blockchain registration for validator ${username} (${publicKey})`);
-  
-          // Déterminer le type de validateur en fonction du rôle
-          let validatorType: number;
-          switch (role) {
-            case UserRole.NOTAIRE:
-              validatorType = 0;
-              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: NOTAIRE -> type 0`);
-              break;
-            case UserRole.GEOMETRE:
-              validatorType = 1;
-              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: GEOMETRE -> type 1`);
-              break;
-            case UserRole.EXPERT_JURIDIQUE:
-              validatorType = 2;
-              this.logger.log(`[SIGNUP-BLOCKCHAIN] Role mapped: EXPERT_JURIDIQUE -> type 2`);
-              break;
-            default:
-              this.logger.error(`[SIGNUP-BLOCKCHAIN] Invalid validator role: ${role}`);
-              throw new BadRequestException('Rôle de validateur non reconnu');
-          }
-  
-          // Enregistrer le validateur dans la blockchain
-          this.logger.log(`[SIGNUP-BLOCKCHAIN] Calling blockchain service to add validator: address=${publicKey}, type=${validatorType}`);
-          const blockchainResult = await this.blockchainService.addValidator(
-            publicKey,
-            validatorType
-          );
-          
-          this.logger.log(`[SIGNUP-BLOCKCHAIN] Blockchain registration result:`, JSON.stringify(blockchainResult, null, 2));
-  
-          if (blockchainResult.success) {
-            this.logger.log(`[SIGNUP-BLOCKCHAIN] Validator registration successful, updating user in database`);
-            // Mettre à jour l'utilisateur avec les informations blockchain
-            const updateResult = await this.UserModel.findByIdAndUpdate(
-              newUser._id,
-              {
-                $set: {
-                  blockchainTxHash: blockchainResult.data.transactionHash,
-                  blockchainValidatorType: validatorType,
-                  isBlockchainValidated: true
-                }
-              },
-              { new: true } // Pour retourner le document mis à jour
-            );
-            
-            if (updateResult) {
-              this.logger.log(`[SIGNUP-BLOCKCHAIN] User updated with blockchain info: 
-                - txHash: ${blockchainResult.data.transactionHash}
-                - blockNumber: ${blockchainResult.data.blockNumber}`);
-            } else {
-              this.logger.warn(`[SIGNUP-BLOCKCHAIN] User update failed after successful blockchain registration`);
-            }
-  
-            this.logger.log(`[SIGNUP-BLOCKCHAIN] Validator ${newUser.username} successfully registered on blockchain with hash ${blockchainResult.data.transactionHash}`);
-          } else if (blockchainResult.error) {
-            // Si blockchainResult a une structure d'erreur avec des détails
-            this.logger.error(`[SIGNUP-BLOCKCHAIN] Blockchain registration failed: 
-              - Message: ${blockchainResult.error.message}
-              - Code: ${blockchainResult.error.code}
-              - Original: ${blockchainResult.error.originalError}`);
-              
-            await this.UserModel.findByIdAndUpdate(
-              newUser._id,
-              {
-                $set: {
-                  blockchainValidationError: blockchainResult.error.message,
-                  isBlockchainValidated: false
-                }
-              }
-            );
-          }
-        } catch (error) {
-          // Ne pas faire échouer l'inscription si l'enregistrement blockchain échoue,
-          // mais enregistrer l'erreur
-          this.logger.error(`[SIGNUP-BLOCKCHAIN] Exception during blockchain registration: ${error.message}`, error);
-          this.logger.error(`[SIGNUP-BLOCKCHAIN] Stack trace:`, error.stack);
-          
-          if (error.code) {
-            this.logger.error(`[SIGNUP-BLOCKCHAIN] Error code: ${error.code}`);
-          }
-          
-          if (error.reason) {
-            this.logger.error(`[SIGNUP-BLOCKCHAIN] Error reason: ${error.reason}`);
-          }
-  
-          await this.UserModel.findByIdAndUpdate(
-            newUser._id,
-            {
-              $set: {
-                blockchainValidationError: error.message,
-                isBlockchainValidated: false
-              }
-            }
-          );
-        }
-      }
-  
-      // Mettre le nouvel utilisateur en cache
-      this.logger.log(`[SIGNUP] Setting user in cache: ${newUser._id}`);
-      await this.redisCacheService.setUser(newUser);
-      this.logger.log(`[SIGNUP] User registration process completed successfully for: ${email}`);
-  
-      return newUser;
+      await this.mailService.sendWelcomeEmail(user.email, user.username);
     } catch (error) {
-      this.logger.error(`[SIGNUP] Registration process failed for ${email}: ${error.message}`, error.stack);
-      throw error; // Propager l'erreur
+      this.logger.error(`Failed to send welcome email: ${error.message}`);
+      // Continue execution even if welcome email fails
+    }
+
+    return user;
+  }
+
+  /**
+  * Send notification when account details are changed
+  */
+  async notifyAccountChange(userId: string, changeType: string, details?: string): Promise<void> {
+    try {
+      const user = await this.findUser(userId, 'id');
+      if (!user) {
+        this.logger.warn(`Cannot send account change notification - user ${userId} not found`);
+        return;
+      }
+
+      // Send the notification email
+      await this.mailService.sendAccountChangeEmail(user.email, {
+        changeType,
+        timestamp: new Date(),
+        details
+      });
+
+      this.logger.log(`Account change notification sent to ${user.email}: ${changeType}`);
+    } catch (error) {
+      this.logger.error(`Failed to send account change notification: ${error.message}`);
+      // Don't throw - this is a notification that shouldn't block the operation
     }
   }
+
+  /**
+  * Update account profile with notification
+  */
+  async updateUserProfile(userId: string, updateData: any): Promise<User> {
+    // Check what fields are being updated to determine change type
+    const changeTypes = [];
+    if (updateData.email) changeTypes.push('Email');
+    if (updateData.phoneNumber) changeTypes.push('Phone Number');
+    if (updateData.username) changeTypes.push('Username');
+
+    const changeType = changeTypes.length > 0
+      ? `Profile Update: ${changeTypes.join(', ')}`
+      : 'Profile Update';
+
+    // Update the user
+    const updatedUser = await this.UserModel.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Invalidate cache
+    if (updateData.email) {
+      await this.redisCacheService.invalidateUser(userId, updateData.email);
+    }
+
+    // Update cache with new data
+    await this.redisCacheService.setUser(updatedUser);
+
+    // Send notification
+    await this.notifyAccountChange(userId, changeType);
+
+    return updatedUser;
+  }
+
+  /**
+  * Check if login is from a new device and send security notification if needed
+  */
+  async checkNewDeviceAndNotify(user: User, deviceInfo: any): Promise<void> {
+    try {
+      // Get user's previous sessions
+      const sessions = await this.tokenService.getAllSessions(user._id.toString());
+
+      // Check if this is a new device
+      const isNewDevice = !sessions.some(session =>
+        session.deviceInfo?.device === deviceInfo.device &&
+        session.deviceInfo?.ip === deviceInfo.ip
+      );
+
+      // If new device, send notification
+      if (isNewDevice && sessions.length > 0) {
+        this.logger.log(`New device login detected for user ${user.email}`);
+
+        // Get geolocation data (simplified example)
+        const location = await this.getLocationFromIP(deviceInfo.ip);
+
+        // Send security alert
+        await this.mailService.sendSecurityAlert(user.email, {
+          alertType: 'New Device Login',
+          timestamp: new Date(),
+          device: deviceInfo.device || deviceInfo.userAgent || 'Unknown device',
+          location: location || 'Unknown location',
+          ipAddress: deviceInfo.ip || 'Unknown IP',
+        });
+      }
+    } catch (error) {
+      // Log but don't throw - this shouldn't prevent login
+      this.logger.error(`Error checking for new device: ${error.message}`);
+    }
+  }
+
+  /**
+  * Mock function to get location from IP (in a real app, use a geolocation service)
+  */
+  private async getLocationFromIP(ip: string): Promise<string> {
+    // In a real implementation, use a geolocation service API
+    // This is just a placeholder
+    return 'Unknown location';
+  }
+
+
   async validateUser(userId: string): Promise<any> {
     // Vérifier d'abord dans le cache
     const cachedUser = await this.redisCacheService.getUserById(userId);
@@ -312,6 +363,9 @@ export class AuthenticationService {
       if (!isPasswordValid) {
         throw new UnauthorizedException('Identifiants invalides');
       }
+
+      // Check if login is from a new device and send security alert if needed
+      await this.checkNewDeviceAndNotify(user, deviceInfo);
 
       // Utilisation de la fonction utilitaire
       const isValidator = isValidatorRole(user.role);
@@ -465,7 +519,6 @@ export class AuthenticationService {
   * Méthode utilitaire pour changer le mot de passe de l'utilisateur
   */
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
-
     const user = await this.findUser(userId, 'id', true);
 
     // Compare the old password with the password in DB
@@ -482,13 +535,25 @@ export class AuthenticationService {
       { new: true } // Retourne le document mis à jour
     );
 
-    // Invalider le cache
+    // Invalidate cache
     await this.redisCacheService.invalidateUser(userId, user.email);
 
     // Mettre à jour le cache avec le nouvel utilisateur
     if (updatedUser) {
       await this.redisCacheService.setUser(updatedUser);
     }
+
+    // Send password change notification
+    await this.notifyAccountChange(userId, 'Password Changed');
+
+    // Send security alert for password change
+    await this.mailService.sendSecurityAlert(user.email, {
+      alertType: 'Password Changed',
+      timestamp: new Date(),
+      device: 'N/A',
+      location: 'N/A',
+      ipAddress: 'N/A'
+    });
 
     return updatedUser;
   }
@@ -751,9 +816,6 @@ export class AuthenticationService {
       this.logger.warn(`User with phone number ${phoneNumber} not found`);
     }
   }
-
-
-
 
   async resetPassword(email: string, code: string, newPassword: string) {
     const resetToken = await this.ResetTokenModel.findOne({
@@ -1068,5 +1130,34 @@ export class AuthenticationService {
       throw error;
     }
   }
+  async saveMetamaskPublicKey(
+    userId: string,
+    ethereumAddress: string,
+    publicKey: string
+  ): Promise<User> {
+    const user = await this.findUser(userId, 'id', true);
+
+    // Update the user with both the Ethereum address and the public key
+    const updatedUser = await this.UserModel.findByIdAndUpdate(
+      userId,
+      {
+        publicKey: publicKey,
+        ethereumAddress: ethereumAddress // You might want to add this field to your User schema
+      },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Invalidate the cache and update it
+    await this.redisCacheService.invalidateUser(userId, user.email);
+    await this.redisCacheService.setUser(updatedUser);
+
+    return updatedUser;
+  }
+
+
 
 }

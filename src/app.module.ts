@@ -1,3 +1,4 @@
+// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
@@ -10,16 +11,16 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
-import { MailService } from './services/mail.service';
+import { MailService, MailService } from './services/mail.service';
 import { BlockchainModule } from './blockchain/blockchain.module';
-
-
-
-
+import { RedisCacheModule } from './redis/redis-cache.module';
+import { Role, RoleSchema } from './roles/schemas/role.schema';
+import { RolesService } from './roles/roles.service';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ //facilite l'utilisation des variables d'environnement
+    ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
       load: [config],
@@ -34,8 +35,8 @@ import { BlockchainModule } from './blockchain/blockchain.module';
     }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
-      autoSchemaFile: 'schema.graphql', // Sauvegarde le schéma dans un fichier
-      context: ({ req }) => ({ req }), // Ajoutez cette ligne pour inclure la requête dans le contexte
+      autoSchemaFile: 'schema.graphql',
+      context: ({ req }) => ({ req }),
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -44,15 +45,26 @@ import { BlockchainModule } from './blockchain/blockchain.module';
       }),
       inject: [ConfigService],
     }),
+    // Add direct reference to Role schema
+    MongooseModule.forFeature([
+      { name: Role.name, schema: RoleSchema }
+    ]),
+    RedisCacheModule,
     CoreModule,
     AuthenticationModule,
     RolesModule,
+    GuardsModule, // Make sure GuardsModule is imported here
     ScheduleModule.forRoot(),
-    GuardsModule,
-    BlockchainModule,
-    
+    HealthModule,
   ],
-  
-  providers: [MailService],
+  providers: [
+    MailService,
+    // Add RolesService directly to app module
+    BlockchainModule,
+    RolesService
+  ],
+  exports: [
+    RolesService
+  ]
 })
 export class AppModule {}

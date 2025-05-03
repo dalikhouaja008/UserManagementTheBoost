@@ -12,6 +12,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UserPreferences, UserPreferencesSchema } from './schema/userPreferences.schema';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
 import { BlockchainModule } from 'src/blockchain/blockchain.module';
+import { UserProfileResolver } from './user-profile.resolver';
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { BlockchainModule } from 'src/blockchain/blockchain.module';
     TokenService,
     TwoFactorAuthService,
     UserPreferencesService,
-    UserPreferencesResolver
+    UserPreferencesResolver,
+    UserProfileResolver
   ],
   exports: [
     AuthenticationService,

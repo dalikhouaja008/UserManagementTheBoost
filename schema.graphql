@@ -185,23 +185,36 @@ enum LandType {
   COMMERCIAL
 }
 
+type HealthCheck {
+  status: String!
+  service: String!
+  timestamp: String!
+}
+
 type Query {
   validateUser(userId: String!): User!
   getActiveSessions: [Session!]!
-  getUserPreferences: UserPreferences
+  getUserPreferences: UserPreferences!
   getAvailableLandTypes: [String!]!
+  getMyProfile: User!
   roles: [Role!]!
   role(name: String!): Role!
   getRolePermissions(name: String!): [Permission!]!
+  healthCheck: HealthCheck!
 }
 
 type Mutation {
+  """Send a test email"""
+  sendTestEmail(email: String!, subject: String! = "Test Email from TheBoost", message: String! = "This is a test email from TheBoost application."): Boolean!
+  testLandNotification(landId: String): Boolean!
   signUp(signupData: UserInput!): User!
   createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
   changePassword(changePasswordData: ChangePasswordInput!): String!
   resetPassword(resetPasswordData: ResetPasswordInput!): User!
   forgotPassword(email: String!): String!
+  verifyEmail(token: String!): User!
+  resendVerificationEmail(email: String!): Boolean!
   requestReset(email: String!): String!
   verifyCode(identifier: String!, code: String!): String!
   enableTwoFactorAuth: String!
@@ -211,7 +224,9 @@ type Mutation {
   logoutAllDevices: Boolean!
   revokeSession(sessionId: String!): Boolean!
   forgotPasswordSms(phoneNumber: String!): String!
+  saveMetamaskPublicKey(input: SaveMetamaskKeyInput!): User!
   updateUserPreferences(preferences: UserPreferencesInput!): UserPreferences!
+  updateProfile(profileData: UserProfileInput!): User!
   createRole(createRoleInput: CreateRoleInput!): Role!
   updateRole(updateRoleInput: UpdateRoleInput!): Role!
   deleteRole(name: String!): Boolean!
@@ -266,6 +281,11 @@ input ResetPasswordInput {
   newPassword: String!
 }
 
+input SaveMetamaskKeyInput {
+  ethereumAddress: String!
+  publicKey: String!
+}
+
 input UserPreferencesInput {
   """Preferred land types"""
   preferredLandTypes: [String!]!
@@ -284,6 +304,13 @@ input UserPreferencesInput {
 
   """Whether notifications are enabled"""
   notificationsEnabled: Boolean! = true
+}
+
+input UserProfileInput {
+  username: String
+  email: String
+  phoneNumber: String
+  publicKey: String
 }
 
 input CreateRoleInput {

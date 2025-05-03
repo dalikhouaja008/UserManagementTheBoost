@@ -15,6 +15,13 @@ import { RedisModule } from '@nestjs-modules/ioredis';
 import { RedisCacheModule } from 'src/redis/redis-cache.module';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 import { BlockchainService } from 'src/blockchain/blockchain.service';
+import { MailResolver } from 'src/services/mail.resolver';
+import { VerificationToken, VerificationTokenSchema } from 'src/authentication/schema/verificationToken.schema';
+import { LandNotificationService } from 'src/services/land-notification.service';
+import { LandNotificationResolver } from 'src/services/land-notification.resolver';
+import { MicroserviceLandNotificationService } from 'src/services/microservice-land-notification.service';
+import { EmailTemplateService } from 'src/services/email-template.service';
+import { UserPreferences, UserPreferencesSchema } from 'src/authentication/schema/userPreferences.schema';
 
 @Global()
 @Module({
@@ -30,7 +37,9 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
-      { name: ResetToken.name, schema: ResetTokenSchema }
+      { name: ResetToken.name, schema: ResetTokenSchema },
+      { name: VerificationToken.name, schema: VerificationTokenSchema },
+      { name: UserPreferences.name, schema: UserPreferencesSchema }
     ]),
     ClientsModule.registerAsync([
       {
@@ -80,7 +89,12 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
 
   ],
   providers: [
+    EmailTemplateService,
     MailService,
+    MailResolver, // Added the new resolver
+    LandNotificationService,
+    LandNotificationResolver,
+    MicroserviceLandNotificationService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
@@ -91,12 +105,13 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
     MongooseModule,
     ClientsModule,
     MailService,
+    EmailTemplateService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
     RedisModule,
     BlockchainService
-
+    LandNotificationService,
   ]
 })
 export class CoreModule { }

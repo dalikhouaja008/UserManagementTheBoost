@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput } from './dto/login.input';
 import { RefreshTokenInput } from './dto/refreshToken.input';
@@ -19,6 +19,7 @@ import { Permissions } from '../core/decorators/permissions.decorator';
 import { DeviceInfo } from 'src/core/decorators/device-info.decorator';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
+import { SaveMetamaskKeyInput } from './dto/save-metamask-key.input';
 
 @Resolver(() => User)
 export class AuthenticationResolver {
@@ -62,6 +63,8 @@ export class AuthenticationResolver {
     }
     return this.authService.signup(userInput);
   }
+
+  
   @Mutation(() => LoginResponse)
   async login(
     @Args('credentials') credentials: LoginInput,
@@ -117,8 +120,23 @@ export class AuthenticationResolver {
       throw new Error(error.message); // ✅ Throw GraphQL error if user not found
     }
   }
+  
+  @Mutation(() => User)
+  async verifyEmail(@Args('token') token: string): Promise<User> {
+    return this.authService.verifyEmail(token);
+  }
 
-
+  @Mutation(() => Boolean)
+  async resendVerificationEmail(@Args('email') email: string): Promise<boolean> {
+    const user = await this.authService.findUser(email, 'email', true);
+    
+    if (user.isVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+    
+    await this.authService.sendVerificationEmail(user);
+    return true;
+  }
 
   // Mutation pour demander un code de réinitialisation
   @Mutation(() => String)
@@ -380,5 +398,18 @@ export class AuthenticationResolver {
     return 'Password reset OTP sent via SMS';
   }
 
+@UseGuards(AuthenticationGuard)
+@Mutation(() => User)
+async saveMetamaskPublicKey(
+  @Args('input') saveMetamaskKeyInput: SaveMetamaskKeyInput,
+  @Context() context
+) {
+  const userId = context.req.user.userId;
+  return this.authService.saveMetamaskPublicKey(
+    userId, 
+    saveMetamaskKeyInput.ethereumAddress,
+    saveMetamaskKeyInput.publicKey
+  );
+}
 }
 
