@@ -281,7 +281,6 @@ input ResetPasswordInput {
 }
 
 input SaveMetamaskKeyInput {
-  ethereumAddress: String!
   publicKey: String!
 }
 

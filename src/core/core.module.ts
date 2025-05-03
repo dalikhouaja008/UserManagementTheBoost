@@ -52,7 +52,7 @@ import { VerificationToken, VerificationTokenSchema } from 'src/authentication/s
       },
 
     ]),
-    RedisModule.forRootAsync({
+    /*RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
@@ -79,8 +79,8 @@ import { VerificationToken, VerificationTokenSchema } from 'src/authentication/s
           },
         };
       },
-    }),
-
+    }),*/
+    RedisCacheModule,
   ],
   providers: [
     EmailTemplateService,
@@ -99,8 +99,8 @@ import { VerificationToken, VerificationTokenSchema } from 'src/authentication/s
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
-    RedisModule,
-    BlockchainService
+    BlockchainService,
+    RedisCacheService,
 
   ]
 })

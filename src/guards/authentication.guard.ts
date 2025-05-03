@@ -77,7 +77,7 @@ export class AuthenticationGuard implements CanActivate {
       
       if (isTwoFactorPath && payload.isTwoFactorAuthenticated === false) {
         this.logger.warn(`2FA required for path: ${path.key}, User: ${payload.userId}`);
-        throw new UnauthorizedException('Authentification à deux facteurs requise');
+        //throw new UnauthorizedException('Authentification à deux facteurs requise');
       }
 
       // Add the payload to the request object

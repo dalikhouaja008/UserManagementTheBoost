@@ -44,6 +44,7 @@ export class User extends Document {
     description: "Clé publique de la wallet de l'utilisateur",
     nullable: true,
   })
+  
   @IsEthereumAddress()
   publicKey?: string;
 

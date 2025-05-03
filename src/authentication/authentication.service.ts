@@ -1133,29 +1133,27 @@ export class AuthenticationService {
   }
   async saveMetamaskPublicKey(
     userId: string,
-    ethereumAddress: string,
     publicKey: string
   ): Promise<User> {
     const user = await this.findUser(userId, 'id', true);
-
-    // Update the user with both the Ethereum address and the public key
+  
+    // Update the user with the public key (which is an Ethereum address)
     const updatedUser = await this.UserModel.findByIdAndUpdate(
       userId,
       {
-        publicKey: publicKey,
-        ethereumAddress: ethereumAddress // You might want to add this field to your User schema
+        publicKey: publicKey
       },
       { new: true }
     );
-
+  
     if (!updatedUser) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
-
+  
     // Invalidate the cache and update it
     await this.redisCacheService.invalidateUser(userId, user.email);
     await this.redisCacheService.setUser(updatedUser);
-
+  
     return updatedUser;
   }
 
