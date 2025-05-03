@@ -22,14 +22,15 @@ import { Model, Types } from 'mongoose';
 import { LoginInput } from './dto/login.input';
 import { TwoFactorAuthService } from './TwoFactorAuth.service';
 import { LoginResponse } from './responses/login.response';
-import { UserRole } from 'src/roles/enums/roles.enum';
+import { UserRole, isValidatorRole } from 'src/roles/enums/roles.enum';
 import { Resource } from 'src/roles/enums/resource.enum';
 import { Action } from 'src/roles/enums/action.enum';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
-import * as crypto from 'crypto';
 import { TwilioService } from 'src/services/twilio.service';
+import { VerificationToken } from './schema/verificationToken.schema';
+import { BlockchainService } from 'src/blockchain/blockchain.service';
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
@@ -46,6 +47,8 @@ export class AuthenticationService {
     private RefreshTokenModel: Model<RefreshToken>,
     @InjectModel(ResetToken.name)
     private ResetTokenModel: Model<ResetToken>,
+    @InjectModel(VerificationToken.name)
+    private VerificationTokenModel: Model<VerificationToken>,
     private jwtService: JwtService,
     private mailService: MailService,
     @Inject(forwardRef(() => RolesService))
@@ -53,8 +56,10 @@ export class AuthenticationService {
     private rolesService: RolesService,
     private twoFactorAuthService: TwoFactorAuthService,
     private readonly redisCacheService: RedisCacheService,
-    private readonly tokenService: TokenService
+    private readonly tokenService: TokenService,
+    private readonly blockchainService: BlockchainService
   ) { }
+  
   /**
   * Méthode utilitaire pour trouver un utilisateur
   */
@@ -100,10 +105,13 @@ export class AuthenticationService {
   }
 
   /**
-  * Méthode utilitaire pour enregistrer un nouvel utilisateur
-  */
+ * Méthode utilitaire pour enregistrer un nouvel utilisateur
+ * avec support pour l'enregistrement des validateurs blockchain
+ */
   async signup(signupData: UserInput) {
+
     const { email, username, password, publicKey, twoFactorSecret, role, isVerified, phoneNumber } = signupData;
+
 
     // Vérifier si l'email existe déjà
     const existingUser = await this.findUser(email, 'email');
@@ -127,18 +135,195 @@ export class AuthenticationService {
       username,
       email,
       password: hashedPassword,
-      publicKey: publicKey || null,
-      twoFactorSecret: twoFactorSecret || null,
-      role: role || UserRole.USER,
+
+      publicKey: publicKey || null, // Optionnel
+      twoFactorSecret: twoFactorSecret || null, // Optionnel
+      role: role || UserRole.USER, // Utilisez 'user' comme valeur par défaut si role n'est pas fourni
       isVerified: isVerified || false,
-      phoneNumber: phoneNumber || null, // ✅ Add phoneNumber here!
+      phoneNumber: phoneNumber || null, // Optionnel, valeur par défaut
+
     });
 
     // Mettre le nouvel utilisateur en cache
     await this.redisCacheService.setUser(newUser);
 
     return newUser;
-}
+  }
+  /**
+    * Send verification email to a newly registered user
+    */
+  async sendVerificationEmail(user: User): Promise<void> {
+    // Generate a verification token
+    const token = nanoid(64);
+    const expiryDate = new Date();
+    expiryDate.setHours(expiryDate.getHours() + 24); // 24 hours expiry
+
+    // Save the verification token
+    await this.VerificationTokenModel.create({
+      userId: user._id,
+      token,
+      expiryDate,
+      email: user.email,
+      used: false
+    });
+
+    // Send the verification email
+    await this.mailService.sendVerificationEmail(user.email, token);
+    this.logger.log(`Verification email sent to ${user.email}`);
+  }
+
+  /**
+  * Verify user email with token
+  */
+  async verifyEmail(token: string): Promise<User> {
+    // Find the verification token
+    const verificationToken = await this.VerificationTokenModel.findOne({
+      token,
+      used: false,
+      expiryDate: { $gt: new Date() }
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Update the user as verified
+    const user = await this.UserModel.findByIdAndUpdate(
+      verificationToken.userId,
+      { isVerified: true },
+      { new: true }
+    );
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Mark token as used
+    verificationToken.used = true;
+    await verificationToken.save();
+
+    // Update user in cache
+    await this.redisCacheService.setUser(user);
+
+    // Send welcome email
+    try {
+      await this.mailService.sendWelcomeEmail(user.email, user.username);
+    } catch (error) {
+      this.logger.error(`Failed to send welcome email: ${error.message}`);
+      // Continue execution even if welcome email fails
+    }
+
+    return user;
+  }
+
+  /**
+  * Send notification when account details are changed
+  */
+  async notifyAccountChange(userId: string, changeType: string, details?: string): Promise<void> {
+    try {
+      const user = await this.findUser(userId, 'id');
+      if (!user) {
+        this.logger.warn(`Cannot send account change notification - user ${userId} not found`);
+        return;
+      }
+
+      // Send the notification email
+      await this.mailService.sendAccountChangeEmail(user.email, {
+        changeType,
+        timestamp: new Date(),
+        details
+      });
+
+      this.logger.log(`Account change notification sent to ${user.email}: ${changeType}`);
+    } catch (error) {
+      this.logger.error(`Failed to send account change notification: ${error.message}`);
+      // Don't throw - this is a notification that shouldn't block the operation
+    }
+  }
+
+  /**
+  * Update account profile with notification
+  */
+  async updateUserProfile(userId: string, updateData: any): Promise<User> {
+    // Check what fields are being updated to determine change type
+    const changeTypes = [];
+    if (updateData.email) changeTypes.push('Email');
+    if (updateData.phoneNumber) changeTypes.push('Phone Number');
+    if (updateData.username) changeTypes.push('Username');
+
+    const changeType = changeTypes.length > 0
+      ? `Profile Update: ${changeTypes.join(', ')}`
+      : 'Profile Update';
+
+    // Update the user
+    const updatedUser = await this.UserModel.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Invalidate cache
+    if (updateData.email) {
+      await this.redisCacheService.invalidateUser(userId, updateData.email);
+    }
+
+    // Update cache with new data
+    await this.redisCacheService.setUser(updatedUser);
+
+    // Send notification
+    await this.notifyAccountChange(userId, changeType);
+
+    return updatedUser;
+  }
+
+  /**
+  * Check if login is from a new device and send security notification if needed
+  */
+  async checkNewDeviceAndNotify(user: User, deviceInfo: any): Promise<void> {
+    try {
+      // Get user's previous sessions
+      const sessions = await this.tokenService.getAllSessions(user._id.toString());
+
+      // Check if this is a new device
+      const isNewDevice = !sessions.some(session =>
+        session.deviceInfo?.device === deviceInfo.device &&
+        session.deviceInfo?.ip === deviceInfo.ip
+      );
+
+      // If new device, send notification
+      if (isNewDevice && sessions.length > 0) {
+        this.logger.log(`New device login detected for user ${user.email}`);
+
+        // Get geolocation data (simplified example)
+        const location = await this.getLocationFromIP(deviceInfo.ip);
+
+        // Send security alert
+        await this.mailService.sendSecurityAlert(user.email, {
+          alertType: 'New Device Login',
+          timestamp: new Date(),
+          device: deviceInfo.device || deviceInfo.userAgent || 'Unknown device',
+          location: location || 'Unknown location',
+          ipAddress: deviceInfo.ip || 'Unknown IP',
+        });
+      }
+    } catch (error) {
+      // Log but don't throw - this shouldn't prevent login
+      this.logger.error(`Error checking for new device: ${error.message}`);
+    }
+  }
+
+  /**
+  * Mock function to get location from IP (in a real app, use a geolocation service)
+  */
+  private async getLocationFromIP(ip: string): Promise<string> {
+    // In a real implementation, use a geolocation service API
+    // This is just a placeholder
+    return 'Unknown location';
+  }
 
 
   async validateUser(userId: string): Promise<any> {
@@ -180,8 +365,14 @@ export class AuthenticationService {
         throw new UnauthorizedException('Identifiants invalides');
       }
 
-      if (user.isTwoFactorEnabled) {
-        console.log(`[${timestamp}] 🔐 2FA is enabled for user: ${user.email}`);
+      // Check if login is from a new device and send security alert if needed
+      await this.checkNewDeviceAndNotify(user, deviceInfo);
+
+      // Utilisation de la fonction utilitaire
+      const isValidator = isValidatorRole(user.role);
+
+      if (user.isTwoFactorEnabled && !isValidator) {
+        console.log(`[${timestamp}] 🔐 2FA required for regular user: ${user.email}`);
 
         const tempToken = this.jwtService.sign(
           {
@@ -194,7 +385,6 @@ export class AuthenticationService {
           }
         );
 
-        // Stocker les informations temporaires selon votre interface TempTokenData
         await this.tokenService.storeTempToken(user._id.toString(), {
           token: tempToken,
           deviceInfo: deviceInfo,
@@ -211,6 +401,8 @@ export class AuthenticationService {
           sessionId: null
         };
       }
+
+      console.log(`[${timestamp}] 🔓 Direct access granted for ${isValidator ? 'validator' : 'user'}: ${user.email}`);
 
       const tokens = await this.generateUserTokens(
         user._id,
@@ -233,12 +425,101 @@ export class AuthenticationService {
       throw error;
     }
   }
+  /*async login(credentials: LoginInput, deviceInfo: any): Promise<LoginResponse> {
+    const timestamp = new Date().toISOString();
 
+    try {
+      console.log(`🔑 Login attempt for email: ${credentials.email}`);
+
+      // 1. Vérifier l'utilisateur
+      const user = await this.findUser(credentials.email, 'email');
+      if (!user) {
+        this.logger.warn(` ❌ User not found: ${credentials.email}`);
+        throw new UnauthorizedException('Identifiants invalides');
+      }
+
+      // 2. Vérifier le mot de passe
+      const isPasswordValid = await bcrypt.compare(
+        credentials.password,
+        user.password
+      );
+
+
+      if (!isPasswordValid) {
+        this.logger.warn(` ❌ Invalid password for user: ${credentials.email}`);
+        throw new UnauthorizedException('Identifiants invalides');
+      }
+
+      // 3. Récupérer et vérifier le rôle
+      let userRole;
+      try {
+        userRole = await this.rolesService.findByName(user.role);
+        this.logger.debug(`Found role ${user.role} with permissions:`, userRole.permissions);
+      } catch (error) {
+        this.logger.error(`❌ Role not found for user: ${credentials.email}, role: ${user.role}`);
+        throw new UnauthorizedException('Configuration de rôle invalide');
+      }
+
+
+      // 3. Si 2FA est activé, gérer temporairement
+      if (user.isTwoFactorEnabled) {
+        this.logger.log(` 🔐 2FA required for user: ${credentials.email}`);
+
+        const tempToken = this.jwtService.sign(
+          { userId: user._id, isTemp: true },
+          { expiresIn: '5m', secret: process.env.JWT_SECRET }
+        );
+
+        await this.tokenService.storeTempToken(user._id.toString(), {
+          token: tempToken,
+          deviceInfo,
+          type: 'twoFactor',
+        });
+
+        return {
+          requiresTwoFactor: true,
+          tempToken,
+          accessToken: null,
+          refreshToken: null,
+          user,
+          deviceInfo,
+          sessionId: null
+        };
+      }
+
+      // 4. Générer les tokens avec les permissions et stocker la session
+      this.logger.log(`🎟️ Generating tokens for user: ${credentials.email}`);
+      const tokens = await this.generateUserTokens(
+        user._id,
+        false,
+        deviceInfo
+      );
+
+      this.logger.log(`✅ Login successful: ${credentials.email}`);
+
+      // 5. Retourner la réponse de login
+      return {
+        requiresTwoFactor: false,
+        tempToken: null,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: {
+          ...user.toObject(),
+          permissions: tokens.permissions
+        },
+        deviceInfo,
+        sessionId: tokens.sessionId
+      };
+
+    } catch (error) {
+      this.logger.error(`[${timestamp}] ❌ Login failed: ${error.message}`);
+      throw error;
+    }
+  }*/
   /**
   * Méthode utilitaire pour changer le mot de passe de l'utilisateur
   */
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
-
     const user = await this.findUser(userId, 'id', true);
 
     // Compare the old password with the password in DB
@@ -255,13 +536,25 @@ export class AuthenticationService {
       { new: true } // Retourne le document mis à jour
     );
 
-    // Invalider le cache
+    // Invalidate cache
     await this.redisCacheService.invalidateUser(userId, user.email);
 
     // Mettre à jour le cache avec le nouvel utilisateur
     if (updatedUser) {
       await this.redisCacheService.setUser(updatedUser);
     }
+
+    // Send password change notification
+    await this.notifyAccountChange(userId, 'Password Changed');
+
+    // Send security alert for password change
+    await this.mailService.sendSecurityAlert(user.email, {
+      alertType: 'Password Changed',
+      timestamp: new Date(),
+      device: 'N/A',
+      location: 'N/A',
+      ipAddress: 'N/A'
+    });
 
     return updatedUser;
   }
@@ -270,45 +563,45 @@ export class AuthenticationService {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
     let user;
     if (isEmail) {
-        user = await this.UserModel.findOne({ email: identifier });
+      user = await this.UserModel.findOne({ email: identifier });
     } else {
-        let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
-        user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
+      let normalizedPhone = identifier.startsWith('+216') ? identifier : `+216${identifier}`;
+      user = await this.UserModel.findOne({ phoneNumber: normalizedPhone });
     }
 
     if (!user) {
-        this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
-        throw new Error('User not found');  // ✅ Throw error here
+      this.logger.warn(`User with ${isEmail ? 'email' : 'phone number'} ${identifier} not found`);
+      throw new Error('User not found');  // ✅ Throw error here
     }
 
     const expiryDate = new Date();
-    expiryDate.setMinutes(expiryDate.getMinutes() + 15); 
+    expiryDate.setMinutes(expiryDate.getMinutes() + 15);
 
     let resetToken: string;
     if (isEmail) {
-        resetToken = nanoid(64);
+      resetToken = nanoid(64);
     } else {
-        resetToken = generateOtp();
+      resetToken = generateOtp();
     }
 
     await this.ResetTokenModel.create({
-        token: resetToken,
-        userId: user._id,
-        expiryDate,
-        email: user.email,
-        phoneNumber: identifier,
+      token: resetToken,
+      userId: user._id,
+      expiryDate,
+      email: user.email,
+      phoneNumber: identifier,
     });
 
     if (isEmail) {
-        this.logger.log(`Sending password reset email to ${identifier}`);
-        await this.mailService.sendPasswordResetEmail(identifier, resetToken);
+      this.logger.log(`Sending password reset email to ${identifier}`);
+      await this.mailService.sendPasswordResetEmail(identifier, resetToken);
     } else {
-        this.logger.log(`Sending password reset SMS to ${identifier}`);
-        await this.twilioService.sendSms(identifier, `Your OTP code is: ${resetToken}`);
+      this.logger.log(`Sending password reset SMS to ${identifier}`);
+      await this.twilioService.sendSms(identifier, `Your OTP code is: ${resetToken}`);
     }
 
     this.logger.log(`Password reset code sent to ${identifier}`);
-}
+  }
 
 
   async resetPasswordWithToken(token: string, newPassword: string): Promise<User> {
@@ -380,8 +673,16 @@ export class AuthenticationService {
     const sessionId = uuidv4();
     const user = await this.findUser(userId.toString(), 'id');
 
+    // Récupérer les permissions du rôle
+    const userRole = await this.rolesService.findByName(user.role);
+    const permissions = userRole?.permissions || [];
+
     const payload = {
       userId: user._id,
+      email: user.email,
+      ethAddress: user.publicKey,
+      role: user.role,
+      permissions: await this.rolesService.getRolePermissions(user.role),
       sessionId,
       isTwoFactorAuthenticated
     };
@@ -394,20 +695,25 @@ export class AuthenticationService {
     const refreshToken = uuidv4();
 
     // Stocker la session
-    await this.tokenService.storeUserToken(user._id.toString(), {
+    const tokenData: Omit<TokenData, 'lastActive'> = {
       accessToken,
       refreshToken,
       deviceInfo,
       loginTime: new Date(),
-    });
+      permissions
+    };
+
+    await this.tokenService.storeUserToken(user._id.toString(), tokenData);
 
     return {
       accessToken,
       refreshToken,
       deviceInfo,
-      sessionId
+      sessionId,
+      permissions
     };
   }
+
   async storeRefreshToken(token: string, userId: string | Types.ObjectId) {
     // Calculate expiry date 3 days from now
     const expiryDate = new Date();
@@ -467,37 +773,37 @@ export class AuthenticationService {
   async verifyCode(identifier: string, code: string) {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
-    const query = isEmail 
-        ? { email: identifier } 
-        : { phoneNumber: identifier };
+    const query = isEmail
+      ? { email: identifier }
+      : { phoneNumber: identifier };
 
     const resetToken = await this.ResetTokenModel.findOne({
-        ...query,
-        token: code,
-        used: false,
-        expiryDate: { $gt: new Date() }
+      ...query,
+      token: code,
+      used: false,
+      expiryDate: { $gt: new Date() }
     });
 
     if (!resetToken) {
-        this.logger.warn(`Failed OTP verification for ${identifier}`);
-        throw new BadRequestException('Invalid or expired OTP code.');
+      this.logger.warn(`Failed OTP verification for ${identifier}`);
+      throw new BadRequestException('Invalid or expired OTP code.');
     }
 
     resetToken.used = true;
     await resetToken.save();
 
     return 'Code verified successfully!';
-}
+  }
 
 
-async forgotPasswordSms(phoneNumber: string): Promise<void> {
+  async forgotPasswordSms(phoneNumber: string): Promise<void> {
     const user = await this.UserModel.findOne({ phoneNumber });
-  
+
     if (user) {
       const otp = generateOtp();
       const expiryDate = new Date();
       expiryDate.setMinutes(expiryDate.getMinutes() + 15); // OTP valid for 10 mins
-  
+
       await this.ResetTokenModel.create({
         token: otp,
         userId: user._id,
@@ -505,15 +811,12 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
         email: user.email,
         phoneNumber: phoneNumber,
       });
-  
+
       await this.twilioService.sendSms(phoneNumber, `Your OTP code is: ${otp}`);
     } else {
       this.logger.warn(`User with phone number ${phoneNumber} not found`);
     }
   }
-  
-}
-
 
   async resetPassword(email: string, code: string, newPassword: string) {
     const resetToken = await this.ResetTokenModel.findOne({
@@ -687,6 +990,7 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
     }
   }
 
+
   // Dans le TokenService, ajoutez cette méthode si elle n'existe pas :
   async getTempToken(userId: string) {
     try {
@@ -697,7 +1001,6 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
       return null;
     }
   }
-
 
   /**
 * Partie gestion des rôles pour les administrateurs
@@ -801,21 +1104,59 @@ async forgotPasswordSms(phoneNumber: string): Promise<void> {
 */
   async getActiveSessions(userId: string): Promise<Session[]> {
     try {
+      this.logger.debug(`Getting active sessions for user ${userId}`);
       const sessions = await this.tokenService.getAllSessions(userId);
-      return sessions.map(session => ({
-        id: session.sessionId,
-        deviceInfo: {
-          userAgent: session.deviceInfo?.userAgent || 'Unknown',
-          ip: session.deviceInfo?.ip || 'Unknown',
-          device: session.deviceInfo?.device || 'Unknown'
-        },
-        createdAt: session.loginTime || new Date().toISOString(),
-        lastActive: session.lastActive || session.loginTime || new Date().toISOString()
-      }));
+
+      this.logger.debug('Raw sessions:', JSON.stringify(sessions, null, 2));
+
+      const mappedSessions = sessions.map(session => {
+        const mappedSession = {
+          id: session.id || session.sessionId || session._id || uuidv4(),
+          deviceInfo: {
+            userAgent: session.deviceInfo?.userAgent || 'Unknown',
+            ip: session.deviceInfo?.ip || 'Unknown',
+            device: session.deviceInfo?.device || 'Unknown'
+          },
+          createdAt: session.loginTime || new Date().toISOString(),
+          lastActive: session.lastActive || session.loginTime || new Date().toISOString()
+        };
+
+        this.logger.debug('Mapped session:', JSON.stringify(mappedSession, null, 2));
+        return mappedSession;
+      });
+
+      return mappedSessions;
     } catch (error) {
       this.logger.error(`Error getting active sessions for user ${userId}:`, error);
       throw error;
     }
   }
+  async saveMetamaskPublicKey(
+    userId: string,
+    publicKey: string
+  ): Promise<User> {
+    const user = await this.findUser(userId, 'id', true);
+  
+    // Update the user with the public key (which is an Ethereum address)
+    const updatedUser = await this.UserModel.findByIdAndUpdate(
+      userId,
+      {
+        publicKey: publicKey
+      },
+      { new: true }
+    );
+  
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+  
+    // Invalidate the cache and update it
+    await this.redisCacheService.invalidateUser(userId, user.email);
+    await this.redisCacheService.setUser(updatedUser);
+  
+    return updatedUser;
+  }
+
+
 
 }

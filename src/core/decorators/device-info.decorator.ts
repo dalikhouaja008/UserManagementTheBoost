@@ -1,6 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import * as DeviceDetector from 'device-detector-js';
+import DeviceDetector from 'device-detector-js';
 
 export const DeviceInfo = createParamDecorator(
   (data: unknown, context: ExecutionContext) => {

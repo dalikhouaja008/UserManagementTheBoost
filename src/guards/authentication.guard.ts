@@ -9,11 +9,14 @@ import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-
 interface JWTPayload {
   userId: string;
   email?: string;
+  ethAddress?: string;
+  role?: string;
+  permissions?: any[];
   isTwoFactorAuthenticated?: boolean;
+  sessionId?: string;
   iat?: number;
   exp?: number;
 }
@@ -22,7 +25,9 @@ interface JWTPayload {
 export class AuthenticationGuard implements CanActivate {
   private readonly logger = new Logger(AuthenticationGuard.name);
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+  ) { }
 
   getRequest(context: ExecutionContext) {
     const ctx = GqlExecutionContext.create(context);
@@ -52,18 +57,46 @@ export class AuthenticationGuard implements CanActivate {
         secret: process.env.JWT_SECRET || 'secret key',
       });
 
-      // Vérifier si l'utilisateur nécessite une 2FA
-      if (payload.isTwoFactorAuthenticated === false && request.path !== '/verify-2fa') {
-        this.logger.warn(`2FA required for user ${payload.userId}`);
-        throw new UnauthorizedException('Authentification à deux facteurs requise');
+      // Log the payload for debugging
+      this.logger.log('JWT Payload:', JSON.stringify(payload, null, 2));
+
+      // Determine the current operation/path
+      const ctx = GqlExecutionContext.create(context);
+      const { path } = ctx.getInfo();
+      
+      // List of paths that should bypass 2FA check
+      const bypassTwoFactorPaths = [
+        'login', 
+        'verifyTwoFactorLogin', 
+        'enableTwoFactorAuth', 
+        'verifyTwoFactorAuth'
+      ];
+
+      // Check if 2FA is required
+      const isTwoFactorPath = !bypassTwoFactorPaths.includes(path.key);
+      
+      if (isTwoFactorPath && payload.isTwoFactorAuthenticated === false) {
+        this.logger.warn(`2FA required for path: ${path.key}, User: ${payload.userId}`);
+        //throw new UnauthorizedException('Authentification à deux facteurs requise');
       }
 
-      // Ajouter le payload au request object
+      // Add the payload to the request object
       request.user = payload;
+      if (payload.sessionId) {
+        request.sessionId = payload.sessionId;
+      }
+      
       return true;
     } catch (error) {
-      this.logger.error(`Erreur d'authentification: ${error.message}`, error.stack);
-      throw new UnauthorizedException('Token invalide');
+      this.logger.error(`Authentication error: ${error.message}`, error.stack);
+      
+      // If it's already an UnauthorizedException, rethrow
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      
+      // For other errors, throw a generic unauthorized error
+      throw new UnauthorizedException('Invalid token');
     }
   }
 }

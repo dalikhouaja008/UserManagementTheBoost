@@ -14,6 +14,9 @@ import { SERVICES } from 'src/constants/service';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { RedisCacheModule } from 'src/redis/redis-cache.module';
 import { RedisCacheService } from 'src/redis/redis-cahce.service';
+import { BlockchainService } from 'src/blockchain/blockchain.service';
+import { EmailTemplateService } from 'src/services/email-template.service';
+import { VerificationToken, VerificationTokenSchema } from 'src/authentication/schema/verificationToken.schema';
 
 @Global()
 @Module({
@@ -29,7 +32,8 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
-      { name: ResetToken.name, schema: ResetTokenSchema }
+      { name: ResetToken.name, schema: ResetTokenSchema },
+      { name: VerificationToken.name, schema: VerificationTokenSchema } 
     ]),
     ClientsModule.registerAsync([
       {
@@ -38,7 +42,7 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
           transport: Transport.TCP,
           options: {
             host: configService.get('LAND_HOST', 'land'),
-            port: configService.get('LAND_PORT', 3003),
+            port: configService.get('LAND_PORT', 5000),
             timeout: 5000,
             retryAttempts: 3,
             retryDelay: 1000,
@@ -48,7 +52,7 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
       },
 
     ]),
-    RedisModule.forRootAsync({
+    /*RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
@@ -75,16 +79,19 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
           },
         };
       },
-    }),
-
+    }),*/
+    RedisCacheModule,
   ],
   providers: [
+    EmailTemplateService,
     MailService,
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
+    BlockchainService
   ],
   exports: [
+    EmailTemplateService,
     JwtModule,
     MongooseModule,
     ClientsModule,
@@ -92,7 +99,8 @@ import { RedisCacheService } from 'src/redis/redis-cahce.service';
     TwoFactorAuthService,
     MicroserviceCommunicationService,
     RedisCacheService,
-    RedisModule,
+    BlockchainService,
+    RedisCacheService,
 
   ]
 })

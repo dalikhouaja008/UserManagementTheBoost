@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput } from './dto/login.input';
 import { RefreshTokenInput } from './dto/refreshToken.input';
@@ -19,6 +19,7 @@ import { Permissions } from '../core/decorators/permissions.decorator';
 import { DeviceInfo } from 'src/core/decorators/device-info.decorator';
 import { TokenService } from './token.service';
 import { Session } from './dto/session.type';
+import { SaveMetamaskKeyInput } from './dto/save-metamask-key.input';
 
 @Resolver(() => User)
 export class AuthenticationResolver {
@@ -28,11 +29,24 @@ export class AuthenticationResolver {
     private readonly jwtService: JwtService,
     private readonly tokenService: TokenService
   ) { }
-  
+
 
   @Mutation(() => User)
-  async signUp(@Args('signupData') signupData: UserInput) {
-    return this.authService.signup(signupData);
+  async signUp(@Args('signupData') signupData: UserInput): Promise<any> {
+    console.log('Signup mutation called with data:', signupData);
+
+    const user = await this.authService.signup(signupData);
+
+    // Debug what is being returned
+    console.log('User returned from service:', user);
+    console.log('User ID:', user._id);
+
+    // Ensure all required fields exist
+    if (!user._id) {
+      console.error('Missing _id in user object');
+    }
+
+    return user;
   }
 
   // Création de compte spécial (NOTAIRE, GEOMETRE, EXPERT_JURIDIQUE) - Réservé à l'admin
@@ -49,6 +63,8 @@ export class AuthenticationResolver {
     }
     return this.authService.signup(userInput);
   }
+
+
   @Mutation(() => LoginResponse)
   async login(
     @Args('credentials') credentials: LoginInput,
@@ -104,8 +120,23 @@ export class AuthenticationResolver {
       throw new Error(error.message); // ✅ Throw GraphQL error if user not found
     }
   }
-  
 
+  @Mutation(() => User)
+  async verifyEmail(@Args('token') token: string): Promise<User> {
+    return this.authService.verifyEmail(token);
+  }
+
+  @Mutation(() => Boolean)
+  async resendVerificationEmail(@Args('email') email: string): Promise<boolean> {
+    const user = await this.authService.findUser(email, 'email', true);
+
+    if (user.isVerified) {
+      throw new BadRequestException('Email is already verified');
+    }
+
+    await this.authService.sendVerificationEmail(user);
+    return true;
+  }
 
   // Mutation pour demander un code de réinitialisation
   @Mutation(() => String)
@@ -115,19 +146,19 @@ export class AuthenticationResolver {
 
   // Mutation pour vérifier un code de réinitialisation
   @Mutation(() => String)
-async verifyCode(
+  async verifyCode(
     @Args('identifier') identifier: string, // Can be email or phone
     @Args('code') code: string
-) {
+  ) {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
 
     const resetToken = await this.authService.verifyCode(identifier, code);
     if (!resetToken) {
-        throw new BadRequestException('Invalid or expired OTP code.');
+      throw new BadRequestException('Invalid or expired OTP code.');
     }
 
     return 'Code verified successfully!';
-}
+  }
 
 
   // Mutation pour réinitialiser le mot de passe
@@ -360,12 +391,24 @@ async verifyCode(
     const userId = context.req.user.userId;
     return this.authService.revokeSession(userId, sessionId);
   }
-}
-  @Mutation(() => String)
-async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
-  await this.authService.forgotPassword(phoneNumber);
-  return 'Password reset OTP sent via SMS';
-}
 
+  @Mutation(() => String)
+  async forgotPasswordSms(@Args('phoneNumber') phoneNumber: string): Promise<string> {
+    await this.authService.forgotPassword(phoneNumber);
+    return 'Password reset OTP sent via SMS';
+  }
+
+  @UseGuards(AuthenticationGuard)
+  @Mutation(() => User)
+  async saveMetamaskPublicKey(
+    @Args('input') saveMetamaskKeyInput: SaveMetamaskKeyInput,
+    @Context() context
+  ) {
+    const userId = context.req.user.userId;
+    return this.authService.saveMetamaskPublicKey(
+      userId,
+      saveMetamaskKeyInput.publicKey
+    );
+  }
 }
 
