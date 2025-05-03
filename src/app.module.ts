@@ -11,7 +11,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { CoreModule } from './core/core.module';
 import { GuardsModule } from './guards/guards.module';
 import * as Joi from 'joi';
-import { MailService, MailService } from './services/mail.service';
+import { MailService } from './services/mail.service';
 import { BlockchainModule } from './blockchain/blockchain.module';
 import { RedisCacheModule } from './redis/redis-cache.module';
 import { Role, RoleSchema } from './roles/schemas/role.schema';

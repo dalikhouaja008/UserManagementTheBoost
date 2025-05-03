@@ -1,4 +1,3 @@
-// src/authentication/schema/verificationToken.schema.ts
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { Document } from 'mongoose';

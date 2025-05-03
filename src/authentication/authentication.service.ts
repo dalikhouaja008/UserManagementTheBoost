@@ -59,6 +59,7 @@ export class AuthenticationService {
     private readonly tokenService: TokenService,
     private readonly blockchainService: BlockchainService
   ) { }
+  
   /**
   * Méthode utilitaire pour trouver un utilisateur
   */

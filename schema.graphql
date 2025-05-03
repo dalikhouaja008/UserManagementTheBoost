@@ -70,6 +70,8 @@ type User {
 
   """Clé publique de la wallet de l'utilisateur"""
   publicKey: String
+
+  """Role de l'utilisateur"""
   role: String!
   permissions: [Permission!]!
 
@@ -204,9 +206,6 @@ type Query {
 }
 
 type Mutation {
-  """Send a test email"""
-  sendTestEmail(email: String!, subject: String! = "Test Email from TheBoost", message: String! = "This is a test email from TheBoost application."): Boolean!
-  testLandNotification(landId: String): Boolean!
   signUp(signupData: UserInput!): User!
   createSpecialUser(input: UserInput!): User!
   login(credentials: LoginInput!): LoginResponse!
